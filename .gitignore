@@ -205,3 +205,13 @@ cython_debug/
 marimo/_static/
 marimo/_lsp/
 __marimo__/
+
+# MapReduce shared storage (exclude data files but keep directory structure)
+shared/input/*
+shared/output/*
+shared/intermediate/*
+shared/jobs/*
+!shared/input/.gitkeep
+!shared/output/.gitkeep
+!shared/intermediate/.gitkeep
+!shared/jobs/.gitkeep

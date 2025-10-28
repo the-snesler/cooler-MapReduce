@@ -1,0 +1,52 @@
+syntax = "proto3";
+
+package mapreduce;
+
+// WorkerService handles task execution and heartbeat from workers
+service WorkerService {
+  rpc Heartbeat(HeartbeatRequest) returns (HeartbeatResponse);
+  rpc AssignTask(TaskAssignment) returns (TaskAck);
+  rpc GetTaskStatus(TaskStatusRequest) returns (TaskStatusResponse);
+}
+
+// Heartbeat sent by worker to coordinator
+message HeartbeatRequest {
+  string worker_id = 1;
+  string status = 2;            // IDLE, BUSY
+  int32 available_slots = 3;    // Number of tasks worker can accept
+}
+
+// Response to heartbeat
+message HeartbeatResponse {
+  bool acknowledged = 1;
+}
+
+// Task assignment from coordinator to worker
+message TaskAssignment {
+  string task_id = 1;
+  string task_type = 2;         // MAP or REDUCE
+  string job_id = 3;
+  string input_path = 4;        // For map: input file, for reduce: intermediate files pattern
+  string output_path = 5;       // Output location
+  string job_file_path = 6;     // Path to user job file
+  int32 partition_id = 7;       // For reduce tasks
+  int32 num_reduce_tasks = 8;   // Total number of reduce tasks (for partitioning)
+}
+
+// Acknowledgment of task assignment
+message TaskAck {
+  string task_id = 1;
+  bool accepted = 2;
+}
+
+// Request for task status
+message TaskStatusRequest {
+  string task_id = 1;
+}
+
+// Response with task status
+message TaskStatusResponse {
+  string task_id = 1;
+  string status = 2;            // PENDING, RUNNING, COMPLETED, FAILED
+  string error_message = 3;     // Error details if status is FAILED
+}
