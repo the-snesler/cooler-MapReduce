@@ -454,6 +454,3 @@ python plot_results.py results/wordcount_benchmark.json
 2. Document limitation; potential optimization: use sampling to improve partitioning
 3. Use streaming/chunked reading for large intermediate files
 4. Profile and optimize hot paths; consider alternative serialization if needed
-
-## Conclusion
-This design provides a simplified but functional MapReduce implementation that demonstrates key concepts from the original paper, including distributed processing, data partitioning, and combiner optimization. The single-VM Docker deployment makes it easy to develop and test while still exhibiting parallelism and performance benefits.
