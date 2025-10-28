@@ -1,0 +1,104 @@
+version: '3.8'
+
+services:
+  coordinator:
+    build:
+      context: .
+      dockerfile: Dockerfile.coordinator
+    container_name: mapreduce-coordinator
+    ports:
+      - "50051:50051"
+    volumes:
+      - ./shared:/shared
+    networks:
+      - mapreduce-network
+    environment:
+      - PYTHONUNBUFFERED=1
+
+  worker1:
+    build:
+      context: .
+      dockerfile: Dockerfile.worker
+    container_name: mapreduce-worker1
+    depends_on:
+      - coordinator
+    volumes:
+      - ./shared:/shared
+    networks:
+      - mapreduce-network
+    environment:
+      - WORKER_ID=worker-1
+      - COORDINATOR_ADDRESS=coordinator:50051
+      - WORKER_PORT=50052
+      - PYTHONUNBUFFERED=1
+    deploy:
+      resources:
+        limits:
+          cpus: '1.0'
+
+  worker2:
+    build:
+      context: .
+      dockerfile: Dockerfile.worker
+    container_name: mapreduce-worker2
+    depends_on:
+      - coordinator
+    volumes:
+      - ./shared:/shared
+    networks:
+      - mapreduce-network
+    environment:
+      - WORKER_ID=worker-2
+      - COORDINATOR_ADDRESS=coordinator:50051
+      - WORKER_PORT=50053
+      - PYTHONUNBUFFERED=1
+    deploy:
+      resources:
+        limits:
+          cpus: '1.0'
+
+  worker3:
+    build:
+      context: .
+      dockerfile: Dockerfile.worker
+    container_name: mapreduce-worker3
+    depends_on:
+      - coordinator
+    volumes:
+      - ./shared:/shared
+    networks:
+      - mapreduce-network
+    environment:
+      - WORKER_ID=worker-3
+      - COORDINATOR_ADDRESS=coordinator:50051
+      - WORKER_PORT=50054
+      - PYTHONUNBUFFERED=1
+    deploy:
+      resources:
+        limits:
+          cpus: '1.0'
+
+  worker4:
+    build:
+      context: .
+      dockerfile: Dockerfile.worker
+    container_name: mapreduce-worker4
+    depends_on:
+      - coordinator
+    volumes:
+      - ./shared:/shared
+    networks:
+      - mapreduce-network
+    environment:
+      - WORKER_ID=worker-4
+      - COORDINATOR_ADDRESS=coordinator:50051
+      - WORKER_PORT=50055
+      - PYTHONUNBUFFERED=1
+    deploy:
+      resources:
+        limits:
+          cpus: '1.0'
+
+networks:
+  mapreduce-network:
+    driver: bridge
