@@ -35,33 +35,33 @@ Based on the design.md Phase 2 requirements and Week 1 completion:
   - [x] Error handling and reporting
   - [x] Resource usage monitoring
 
-### Job Pipeline Management ⬜️
-- [ ] Implement map phase completion detection
-  - [ ] Track all map tasks for a job
-  - [ ] Validate intermediate files
-  - [ ] Trigger reduce phase start
-- [ ] Implement reduce phase management
-  - [ ] Create reduce tasks when maps complete
-  - [ ] Track reduce task completion
-  - [ ] Mark job as completed
-- [ ] Add job status transitions
-  - [ ] SUBMITTED → MAPPING → REDUCING → COMPLETED
-  - [ ] Handle failures at each stage
-  - [ ] Support job cancellation
+### Job Pipeline Management ✅
+- [x] Implement map phase completion detection
+  - [x] Track all map tasks for a job
+  - [x] Validate intermediate files
+  - [x] Trigger reduce phase start
+- [x] Implement reduce phase management
+  - [x] Create reduce tasks when maps complete
+  - [x] Track reduce task completion
+  - [x] Mark job as completed
+- [x] Add job status transitions
+  - [x] SUBMITTED → MAPPING → REDUCING → COMPLETED
+  - [x] Handle failures at each stage
+  - [x] Support job cancellation
 
-### Client Enhancements ⬜️
-- [ ] Add progress monitoring
-  - [ ] Show map/reduce task progress
-  - [ ] Display current phase
-  - [ ] Show worker assignments
-- [ ] Improve error reporting
-  - [ ] Detailed task failure information
-  - [ ] Worker failure notifications
-  - [ ] Job failure analysis
-- [ ] Add job control features
-  - [ ] Cancel running job
-  - [ ] List active tasks
-  - [ ] Show resource usage
+### Client Enhancements ✅
+- [x] Add progress monitoring
+  - [x] Show map/reduce task progress (with progress bars)
+  - [x] Display current phase
+  - [x] Show worker assignments
+- [x] Improve error reporting
+  - [x] Detailed task failure information
+  - [x] Worker failure notifications
+  - [x] Job failure analysis
+- [x] Add job control features
+  - [x] Cancel running job
+  - [x] List active tasks
+  - [x] Show resource usage
 
 ### Testing Enhancements 🔄
 - [x] Unit tests

@@ -11,7 +11,7 @@ import grpc
 from datetime import datetime
 import logging
 
-# Add src directory to path for imports
+# Add src directory to path
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..', 'src'))
 
 import coordinator_pb2
@@ -82,10 +82,29 @@ class TestTaskScheduling(unittest.TestCase):
         
         job_state = JobState("test_job", request)
         
+        # Set up test directory and intermediate files
+        test_dir = os.path.join(os.path.dirname(os.path.dirname(__file__)), 
+                               "shared/intermediate/test_job")
+        os.makedirs(test_dir, exist_ok=True)
+        
+        # Create intermediate files
+        intermediate_files = [
+            os.path.join(test_dir, f"map_{i}.txt") for i in range(4)
+        ]
+        for file in intermediate_files:
+            with open(file, "w") as f:
+                f.write("test data")
+        
+        # Start in map phase
+        job_state.transition_to_map_phase()
+        
         # Add some map tasks
         for i in range(4):
             task = Task(f"test_job_map_{i}", "test_job", "MAP", "/input", "/output")
             job_state.map_tasks[task.task_id] = task
+        
+        # Set intermediate files for validation
+        job_state.intermediate_files = intermediate_files
         
         # Complete 2 map tasks
         for task_id in list(job_state.map_tasks.keys())[:2]:
@@ -102,6 +121,12 @@ class TestTaskScheduling(unittest.TestCase):
         job_state.update_progress()
         self.assertEqual(job_state.completed_map_tasks, 4)
         self.assertEqual(job_state.phase, "REDUCE")
+        self.assertEqual(job_state.status, "REDUCING")
+        
+        # Clean up test files
+        import shutil
+        if os.path.exists(test_dir):
+            shutil.rmtree(test_dir)
         self.assertEqual(job_state.status, "REDUCING")
 
 class TestTaskScheduler(unittest.TestCase):

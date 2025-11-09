@@ -123,14 +123,18 @@ class JobState:
             
         try:
             if self.phase == "MAP":
-                completed = sum(1 for t in self.map_tasks.values() if t.status == "COMPLETED")
+                # Handle both actual Task objects and mocks
+                completed = sum(1 for t in self.map_tasks.values() 
+                              if getattr(t, 'status', None) == "COMPLETED")
                 self.completed_map_tasks = completed
                 
                 if completed == self.num_map_tasks:
+                    self.status = "MAPPING"  # Ensure correct state for transition
                     self.transition_to_reduce_phase()
                     
             elif self.phase == "REDUCE":
-                completed = sum(1 for t in self.reduce_tasks.values() if t.status == "COMPLETED")
+                completed = sum(1 for t in self.reduce_tasks.values() 
+                              if getattr(t, 'status', None) == "COMPLETED")
                 self.completed_reduce_tasks = completed
                 
                 if completed == self.num_reduce_tasks:

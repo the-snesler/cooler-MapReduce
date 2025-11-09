@@ -1,0 +1,68 @@
+============================= test session starts ==============================
+platform linux -- Python 3.12.3, pytest-7.4.3, pluggy-1.6.0 -- /home/jsun424/cooler-MapReduce/venv/bin/python
+cachedir: .pytest_cache
+rootdir: /home/jsun424/cooler-MapReduce
+plugins: timeout-2.2.0
+collecting ... collected 5 items
+
+tests/test_week2.py::TestTaskScheduling::test_job_state_progress FAILED  [ 20%]
+tests/test_week2.py::TestTaskScheduling::test_task_creation PASSED       [ 40%]
+tests/test_week2.py::TestTaskScheduling::test_task_state_transitions PASSED [ 60%]
+tests/test_week2.py::TestTaskScheduler::test_priority_queue PASSED       [ 80%]
+tests/test_week2.py::TestTaskScheduler::test_worker_performance_tracking PASSED [100%]
+
+=================================== FAILURES ===================================
+__________________ TestTaskScheduling.test_job_state_progress __________________
+
+self = <tests.test_week2.TestTaskScheduling testMethod=test_job_state_progress>
+
+    def test_job_state_progress(self):
+        """Test job state progress tracking."""
+        request = coordinator_pb2.JobRequest(
+            input_path="/shared/input/test.txt",
+            output_path="/shared/output/test",
+            job_file_path="/shared/jobs/test.py",
+            num_map_tasks=4,
+            num_reduce_tasks=2
+        )
+    
+        job_state = JobState("test_job", request)
+    
+        # Add some map tasks
+        for i in range(4):
+            task = Task(f"test_job_map_{i}", "test_job", "MAP", "/input", "/output")
+            job_state.map_tasks[task.task_id] = task
+    
+        # Complete 2 map tasks
+        for task_id in list(job_state.map_tasks.keys())[:2]:
+            job_state.map_tasks[task_id].status = "COMPLETED"
+    
+        job_state.update_progress()
+        self.assertEqual(job_state.completed_map_tasks, 2)
+        self.assertEqual(job_state.phase, "MAP")
+    
+        # Complete remaining map tasks
+        for task_id in list(job_state.map_tasks.keys())[2:]:
+            job_state.map_tasks[task_id].status = "COMPLETED"
+    
+        job_state.update_progress()
+        self.assertEqual(job_state.completed_map_tasks, 4)
+>       self.assertEqual(job_state.phase, "REDUCE")
+E       AssertionError: 'MAP' != 'REDUCE'
+E       - MAP
+E       + REDUCE
+
+tests/test_week2.py:104: AssertionError
+------------------------------ Captured log call -------------------------------
+ERROR    coordinator.server:server.py:108 Job test_job failed: Cannot transition to REDUCE phase - invalid intermediate files
+=============================== warnings summary ===============================
+<frozen importlib._bootstrap>:488
+  <frozen importlib._bootstrap>:488: DeprecationWarning: Type google._upb._message.MessageMapContainer uses PyType_Spec with a metaclass that has custom tp_new. This is deprecated and will no longer be allowed in Python 3.14.
+
+<frozen importlib._bootstrap>:488
+  <frozen importlib._bootstrap>:488: DeprecationWarning: Type google._upb._message.ScalarMapContainer uses PyType_Spec with a metaclass that has custom tp_new. This is deprecated and will no longer be allowed in Python 3.14.
+
+-- Docs: https://docs.pytest.org/en/stable/how-to/capture-warnings.html
+=========================== short test summary info ============================
+FAILED tests/test_week2.py::TestTaskScheduling::test_job_state_progress - Ass...
+=================== 1 failed, 4 passed, 2 warnings in 0.09s ====================

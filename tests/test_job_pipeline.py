@@ -23,14 +23,15 @@ class TestJobPipeline(unittest.TestCase):
         self.job = JobState("test-job-1", self.mock_request)
         
         # Set up test directory structure
-        self.test_dir = "shared/intermediate/test_job_1"
+        self.test_dir = os.path.join(os.path.dirname(os.path.dirname(__file__)), 
+                                   "shared/intermediate/test_job_1")
         os.makedirs(self.test_dir, exist_ok=True)
         
         # Create temporary intermediate files for testing
         self.intermediate_files = [
-            f"{self.test_dir}/map1.txt",
-            f"{self.test_dir}/map2.txt",
-            f"{self.test_dir}/map3.txt"
+            os.path.join(self.test_dir, "map1.txt"),
+            os.path.join(self.test_dir, "map2.txt"),
+            os.path.join(self.test_dir, "map3.txt")
         ]
         for file in self.intermediate_files:
             with open(file, "w") as f:
