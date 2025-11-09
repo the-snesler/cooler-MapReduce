@@ -17,6 +17,9 @@ from monitoring import (
     cancel_job
 )
 
+# Add src directory to path for imports
+sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..'))
+
 import coordinator_pb2
 import coordinator_pb2_grpc
 

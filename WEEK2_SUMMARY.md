@@ -6,80 +6,99 @@ This document summarizes the Week 2 (Phase 2: Task Scheduling and Execution) imp
 ## Implemented Features
 
 ### 1. Coordinator Task Management ✅
-- Input file splitting with line boundary preservation
+- Job state management with phase transitions (SUBMITTED → MAPPING → REDUCING → COMPLETED)
 - Task creation and scheduling system
-- Worker performance tracking and load balancing
-- Priority-based task queue implementation
-- Straggler detection and mitigation
+- Worker tracking through heartbeat mechanism
+- Automatic task retry on failures
 
-Added features beyond requirements:
-- Dynamic task prioritization based on job wait time, retry count, and phase completion
-- Worker performance scoring using task history and CPU usage
-- Automatic backup task creation for stragglers
-- Worker timeout detection and handling
+### 2. Worker Task Execution ✅
+- Map task execution with intermediate file generation
+- Reduce task execution with final output generation
+- Progress reporting and monitoring
+- Resource usage tracking (CPU, memory)
+- Task status updates and error handling
 
-### 2. Worker Task Execution ⬜️
-(To be implemented)
-- Map task execution
-- Reduce task execution
-- Progress reporting
-- Resource monitoring
+Added features:
+- Progress tracking with detailed status updates
+- Resource monitoring for workers
+- Robust error handling and reporting
+- Automatic cleanup of intermediate files
 
-### 3. Job Pipeline Management ⬜️
-(To be implemented)
-- Map phase completion detection
-- Reduce phase management
-- Job status transitions
-- Failure handling
+### 3. Job Pipeline Management ✅
+- Automatic phase transitions (map → reduce)
+- Intermediate file validation
+- Job completion detection
+- Error handling and job failure states
 
-### 4. Client Enhancements ⬜️
-(To be implemented)
-- Progress monitoring
-- Error reporting
-- Job control features
+### 4. Testing Status
+- Unit tests for job state transitions
+- Tests for task creation and execution
+- Job pipeline integration tests
+- Worker performance tracking tests
 
-## Testing Status
+## Using the MapReduce System
 
-### Implemented Tests ✅
-- Basic unit tests for Task and JobState classes
-- Task state transition tests
-- Priority queue ordering tests
-- Initial worker performance tracking tests
-
-### Pending Tests ⬜️
-- Integration tests for task execution
-- Worker failure recovery scenarios
-- Multiple concurrent jobs
-- End-to-end system tests
-- Performance benchmarks
-- Straggler detection and handling
-- Task reassignment tests
-
-## Next Steps
-
-1. Complete worker task execution implementation
-2. Implement job pipeline management
-3. Add client monitoring features
-4. Create comprehensive test suite
-5. Update documentation with complete Week 2 features
-
-## How to Test Current Implementation
-
+### Setting Up
+1. Start the coordinator and worker containers:
 ```bash
-# Submit a test job
+docker compose up --build
+```
+
+### Submitting a Job
+```bash
+# First, upload your input data to the shared directory
+cp your_input_file.txt shared/input/
+
+# Upload your MapReduce job file
+cp your_job.py shared/jobs/
+
+# Submit the job
 python src/client/client.py submit \
-  --input /shared/input/test.txt \
-  --output /shared/output/test \
-  --job-file /shared/jobs/test.py \
+  --input shared/input/your_input_file.txt \
+  --output shared/output/result \
+  --job-file shared/jobs/your_job.py \
   --num-map 4 \
   --num-reduce 2
 
-# Monitor job status
-python src/client/client.py status --job-id <job_id>
+# You'll receive a job ID in response, like: job_123456
 ```
 
-## To run the tester for week2
+### Monitoring Jobs
 ```bash
-python -m pytest tests/test_task_executor.py -v
+# Check status of a specific job
+python src/client/client.py status --job-id job_123456
+
+# List all jobs
+python src/client/client.py list
+
+# Get results when job completes
+python src/client/client.py results --job-id job_123456
 ```
-Implementation will continue with worker task execution next.
+
+### Example Job File (word_count.py)
+```python
+def map_fn(key, value):
+    """Count word frequencies in input text."""
+    for word in value.split():
+        yield (word, 1)
+
+def reduce_fn(key, values):
+    """Sum up word counts."""
+    yield (key, sum(values))
+```
+
+## Running Tests
+```bash
+# Run all Week 2 tests
+python -m pytest tests/test_job_pipeline.py tests/test_week2.py -v
+
+# Run specific test files
+python -m pytest tests/test_job_pipeline.py -v  # Job state tests
+python -m pytest tests/test_week2.py -v         # Task execution tests
+```
+
+## Next Steps
+1. Implement worker failure recovery
+2. Add performance benchmarking
+3. Complete documentation updates
+4. Add support for combiners (optimization)

@@ -1,6 +1,7 @@
 """
 Worker server for MapReduce framework.
-Executes map and reduce tasks assigned by the coordinator.
+# Executes map and reduce tasks assigned by the coordinator.
+Handles communication and task management.
 """
 
 import os

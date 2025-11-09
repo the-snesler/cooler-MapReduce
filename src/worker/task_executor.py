@@ -1,3 +1,7 @@
+"""
+TaskExecutor, handles the actual execution of map and reduce tasks.
+"""
+
 import os
 import glob
 import pickle
