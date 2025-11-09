@@ -30,6 +30,8 @@ logger = logging.getLogger(__name__)
 
 class JobState:
     """Represents the state of a MapReduce job."""
+    VALID_STATES = ["SUBMITTED", "MAPPING", "REDUCING", "COMPLETED", "FAILED", "CANCELLED"]
+    
     def __init__(self, job_id, request):
         self.job_id = job_id
         self.input_path = request.input_path
@@ -37,9 +39,10 @@ class JobState:
         self.job_file_path = request.job_file_path
         self.num_map_tasks = request.num_map_tasks
         self.num_reduce_tasks = request.num_reduce_tasks
-        self.status = "SUBMITTED"  # SUBMITTED, MAPPING, REDUCING, COMPLETED, FAILED
+        self.status = "SUBMITTED"
         self.submit_time = datetime.now().isoformat()
-        self.phase = "MAP"  # MAP or REDUCE
+        self.phase = "MAP"
+        self.completion_time = None
         
         # Task tracking
         self.map_tasks = {}  # task_id -> Task
@@ -50,26 +53,90 @@ class JobState:
         
         # Intermediate file tracking
         self.intermediate_files = []  # List of files produced by map tasks
+        self.intermediate_validated = False
+    
+    def validate_intermediate_files(self):
+        """Validate all intermediate files exist and are non-empty."""
+        if not self.intermediate_files:
+            return False
+            
+        try:
+            for file_path in self.intermediate_files:
+                if not os.path.exists(file_path):
+                    logger.error(f"Missing intermediate file: {file_path}")
+                    return False
+                if os.path.getsize(file_path) == 0:
+                    logger.error(f"Empty intermediate file: {file_path}")
+                    return False
+            self.intermediate_validated = True
+            return True
+        except Exception as e:
+            logger.error(f"Error validating intermediate files: {str(e)}")
+            return False
+    
+    def transition_to_map_phase(self):
+        """Transition job to mapping phase."""
+        if self.status != "SUBMITTED":
+            raise ValueError(f"Cannot transition to MAP phase from {self.status}")
+        self.status = "MAPPING"
+        self.phase = "MAP"
+        logger.info(f"Job {self.job_id} started MAP phase")
+    
+    def transition_to_reduce_phase(self):
+        """Transition job to reduce phase if all map tasks are complete."""
+        if self.status != "MAPPING" or self.completed_map_tasks < self.num_map_tasks:
+            raise ValueError("Cannot transition to REDUCE phase - maps not complete")
+        if not self.validate_intermediate_files():
+            raise ValueError("Cannot transition to REDUCE phase - invalid intermediate files")
+        self.status = "REDUCING"
+        self.phase = "REDUCE"
+        logger.info(f"Job {self.job_id} started REDUCE phase")
+    
+    def mark_completed(self):
+        """Mark job as completed if all reduce tasks are done."""
+        if self.status != "REDUCING" or self.completed_reduce_tasks < self.num_reduce_tasks:
+            raise ValueError("Cannot mark job complete - reduces not done")
+        self.status = "COMPLETED"
+        self.completion_time = datetime.now().isoformat()
+        logger.info(f"Job {self.job_id} completed successfully")
+    
+    def mark_failed(self, error_msg):
+        """Mark job as failed with error message."""
+        self.status = "FAILED"
+        self.error_message = error_msg
+        self.completion_time = datetime.now().isoformat()
+        logger.error(f"Job {self.job_id} failed: {error_msg}")
+    
+    def cancel(self):
+        """Cancel the job if it's not already completed or failed."""
+        if self.status not in ["COMPLETED", "FAILED"]:
+            self.status = "CANCELLED"
+            self.completion_time = datetime.now().isoformat()
+            logger.info(f"Job {self.job_id} cancelled")
+            return True
+        return False
         
     def update_progress(self):
-        """Update job progress and phase."""
-        if self.status == "FAILED":
+        """Update job progress and phase transitions."""
+        if self.status in ["FAILED", "CANCELLED", "COMPLETED"]:
             return
             
-        if self.phase == "MAP":
-            completed = sum(1 for t in self.map_tasks.values() if t.status == "COMPLETED")
-            self.completed_map_tasks = completed
-            
-            if completed == self.num_map_tasks:
-                self.phase = "REDUCE"
-                self.status = "REDUCING"
+        try:
+            if self.phase == "MAP":
+                completed = sum(1 for t in self.map_tasks.values() if t.status == "COMPLETED")
+                self.completed_map_tasks = completed
                 
-        elif self.phase == "REDUCE":
-            completed = sum(1 for t in self.reduce_tasks.values() if t.status == "COMPLETED")
-            self.completed_reduce_tasks = completed
-            
-            if completed == self.num_reduce_tasks:
-                self.status = "COMPLETED"
+                if completed == self.num_map_tasks:
+                    self.transition_to_reduce_phase()
+                    
+            elif self.phase == "REDUCE":
+                completed = sum(1 for t in self.reduce_tasks.values() if t.status == "COMPLETED")
+                self.completed_reduce_tasks = completed
+                
+                if completed == self.num_reduce_tasks:
+                    self.mark_completed()
+        except Exception as e:
+            self.mark_failed(str(e))
 
 
 def split_input_file(file_path, num_splits):
