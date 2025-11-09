@@ -1,6 +1,18 @@
-# MapReduce Architecture (Week 1)
+# MapReduce Architecture
 
-## System Components
+## System Components (Week 1 & 2)
+
+### Week 1: Core Infrastructure
+- Docker containerization with resource limits
+- gRPC communication between components
+- Basic coordinator and worker scaffolding
+- Shared storage setup
+
+### Week 2: Task Scheduling and Execution
+- Advanced task scheduling with priority queue
+- Worker performance tracking and load balancing
+- Map/Reduce task execution with progress reporting
+- Failure handling and task recovery
 
 ```
 ┌─────────────────────────────────────────────────────────────────┐
@@ -95,17 +107,78 @@ Worker → Coordinator: TaskAck
   └─ accepted: true
 ```
 
-## Data Flow (Future - Week 2+)
+## Task Scheduling and Execution Flow
 
+### 1. Task Creation and Assignment
 ```
-Input Data
+Input File
    │
    ▼
-┌──────────────┐
-│  Map Phase   │  Workers read input, run map_fn, partition outputs
-└──────┬───────┘
-       │
-       ▼
+Split into chunks ─────┐
+   │                   │
+   ▼                   ▼
+Create Map Tasks    Assign to Workers
+   │                   │
+   └───────────────────┘
+           │
+           ▼
+    Execute Map Tasks
+           │
+           ▼
+Write Intermediate Files
+           │
+           ▼
+Create Reduce Tasks────┐
+   │                   │
+   ▼                   ▼
+Assign to Workers   Track Progress
+```
+
+### 2. Worker Task Execution
+```
+Worker
+   │
+   ▼
+Receive Task Assignment
+   │
+   ▼
+Load Job Functions (map_fn/reduce_fn)
+   │
+   ├─────────────┐
+   ▼             ▼
+Map Task     Reduce Task
+   │             │
+   ▼             ▼
+Process Input  Read Intermediates
+   │             │
+   ▼             ▼
+Partition     Aggregate &
+Outputs       Write Output
+   │             │
+   └─────────────┘
+         │
+         ▼
+Report Completion
+```
+
+### 3. Failure Handling
+```
+Task Failure
+     │
+     ▼
+Update Status & Log Error
+     │
+     ▼
+Retry Count < Max?
+     │
+     ├───Yes──► Requeue Task
+     │            │
+     │            ▼
+     │         Reassign to
+     │         Different Worker
+     │
+     └───No───► Mark Job Failed
+```
 ┌──────────────────┐
 │  Intermediate    │  Partitioned by hash(key) % num_reduce
 │  Storage         │  Format: pickle files

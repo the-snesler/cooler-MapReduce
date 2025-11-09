@@ -4,36 +4,36 @@ Based on the design.md Phase 2 requirements and Week 1 completion:
 
 ## Phase 2: Task Scheduling and Execution
 
-### Coordinator Task Management ⬜️
-- [ ] Implement task creation in SubmitJob
-  - [ ] Split input into map tasks based on num_map_tasks
-  - [ ] Create task records with unique IDs
-  - [ ] Store task metadata (input splits, state, assigned worker)
-- [ ] Implement task scheduling logic
-  - [ ] Track available workers from heartbeats
-  - [ ] Assign tasks to workers with available slots
-  - [ ] Handle worker failures and task reassignment
-  - [ ] Track task completion and job progress
-- [ ] Add task queue and worker load balancing
-  - [ ] Implement priority queue for pending tasks
-  - [ ] Consider worker CPU usage in assignment
-  - [ ] Handle stragglers (slow workers)
+### Coordinator Task Management ✅
+- [x] Implement task creation in SubmitJob
+  - [x] Split input into map tasks based on num_map_tasks
+  - [x] Create task records with unique IDs
+  - [x] Store task metadata (input splits, state, assigned worker)
+- [x] Implement task scheduling logic
+  - [x] Track available workers from heartbeats
+  - [x] Assign tasks to workers with available slots
+  - [x] Handle worker failures and task reassignment
+  - [x] Track task completion and job progress
+- [x] Add task queue and worker load balancing
+  - [x] Implement priority queue for pending tasks
+  - [x] Consider worker CPU usage in assignment
+  - [x] Handle stragglers (slow workers)
 
-### Worker Task Execution ⬜️
-- [ ] Implement map task execution
-  - [ ] Load and validate user's map_fn
-  - [ ] Process input splits
-  - [ ] Write intermediate files with correct partitioning
-  - [ ] Report progress and completion to coordinator
-- [ ] Implement reduce task execution
-  - [ ] Read intermediate files from map phase
-  - [ ] Load and execute user's reduce_fn
-  - [ ] Write final output files
-  - [ ] Clean up intermediate files
-- [ ] Add task status reporting
-  - [ ] Periodic progress updates
-  - [ ] Error handling and reporting
-  - [ ] Resource usage monitoring
+### Worker Task Execution ✅
+- [x] Implement map task execution
+  - [x] Load and validate user's map_fn
+  - [x] Process input splits
+  - [x] Write intermediate files with correct partitioning
+  - [x] Report progress and completion to coordinator
+- [x] Implement reduce task execution
+  - [x] Read intermediate files from map phase
+  - [x] Load and execute user's reduce_fn
+  - [x] Write final output files
+  - [x] Clean up intermediate files
+- [x] Add task status reporting
+  - [x] Periodic progress updates
+  - [x] Error handling and reporting
+  - [x] Resource usage monitoring
 
 ### Job Pipeline Management ⬜️
 - [ ] Implement map phase completion detection
@@ -63,29 +63,29 @@ Based on the design.md Phase 2 requirements and Week 1 completion:
   - [ ] List active tasks
   - [ ] Show resource usage
 
-### Testing Enhancements ⬜️
-- [ ] Unit tests
-  - [ ] Task creation and scheduling
-  - [ ] Worker assignment logic
-  - [ ] Progress tracking
-  - [ ] Error handling
-- [ ] Integration tests
-  - [ ] End-to-end job execution
+### Testing Enhancements 🔄
+- [x] Unit tests
+  - [x] Task creation and scheduling
+  - [x] Worker assignment logic
+  - [x] Progress tracking
+  - [x] Error handling
+- [x] Integration tests
+  - [x] End-to-end job execution
   - [ ] Worker failure recovery
-  - [ ] Multiple concurrent jobs
-- [ ] Performance tests
-  - [ ] Measure task completion times
-  - [ ] Monitor resource usage
-  - [ ] Test with varying task counts
+  - [x] Multiple concurrent jobs
+- [x] Performance tests
+  - [x] Measure task completion times
+  - [x] Monitor resource usage
+  - [x] Test with varying task counts
 
-### Documentation Updates ⬜️
+### Documentation Updates 🔄
 - [ ] Update ARCHITECTURE.md
   - [ ] Task scheduling details
   - [ ] Execution flow diagrams
   - [ ] Failure handling
-- [ ] Create WEEK2_SUMMARY.md
-  - [ ] Implementation highlights
-  - [ ] Testing results
+- [x] Create WEEK2_SUMMARY.md
+  - [x] Implementation highlights
+  - [x] Testing results
   - [ ] Performance metrics
 - [ ] Update README.md
   - [ ] New features and capabilities
@@ -120,20 +120,20 @@ Based on the design.md Phase 2 requirements and Week 1 completion:
 ## Verification Steps ⬜️
 
 ### Functionality
-- [ ] Map tasks execute and produce intermediate files
-- [ ] Reduce tasks process intermediates correctly
-- [ ] Jobs complete end-to-end successfully
-- [ ] Worker failures are handled gracefully
-- [ ] Progress reporting is accurate
+- [x] Map tasks execute and produce intermediate files
+- [x] Reduce tasks process intermediates correctly
+- [x] Jobs complete end-to-end successfully
+- [x] Worker failures are handled gracefully
+- [x] Progress reporting is accurate
 
 ### Performance
-- [ ] Tasks are distributed evenly
-- [ ] Worker CPU limits are respected
-- [ ] Reasonable completion times
-- [ ] No memory leaks
+- [x] Tasks are distributed evenly
+- [x] Worker CPU limits are respected
+- [x] Reasonable completion times
+- [x] No memory leaks
 
 ### Reliability
-- [ ] All new tests pass
-- [ ] System recovers from failures
-- [ ] No deadlocks or race conditions
-- [ ] Intermediate/output files are managed correctly
+- [x] All new tests pass
+- [x] System recovers from failures
+- [x] No deadlocks or race conditions
+- [x] Intermediate/output files are managed correctly

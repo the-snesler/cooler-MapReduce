@@ -3,14 +3,19 @@ Worker server for MapReduce framework.
 Executes map and reduce tasks assigned by the coordinator.
 """
 
-import grpc
-from concurrent import futures
-import sys
 import os
+import sys
 import uuid
 import time
-import threading
+import grpc
+import glob
+import pickle
+import psutil
 import logging
+import threading
+import importlib.util
+from concurrent import futures
+from typing import Dict, Optional
 
 # Add src directory to path for imports
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..'))
@@ -19,6 +24,7 @@ import coordinator_pb2
 import coordinator_pb2_grpc
 import worker_pb2
 import worker_pb2_grpc
+from worker.task_executor import TaskExecutor
 
 logging.basicConfig(
     level=logging.INFO,
@@ -26,6 +32,275 @@ logging.basicConfig(
 )
 logger = logging.getLogger(__name__)
 
+class WorkerServer:
+    """Worker server that handles task execution and coordination."""
+    
+    def __init__(self, shared_dir: str, coordinator_address: str, max_workers: int = 4):
+        self.worker_id = str(uuid.uuid4())
+        self.shared_dir = shared_dir
+        self.coordinator_address = coordinator_address
+        self.max_workers = max_workers
+        self.task_executor = TaskExecutor(shared_dir)
+        
+        # Track running tasks
+        self.tasks: Dict[str, Dict] = {}
+        self.tasks_lock = threading.Lock()
+        
+        # Initialize server and servicer
+        self.server = grpc.server(futures.ThreadPoolExecutor(max_workers=max_workers))
+        self.servicer = WorkerServicer(self)
+        worker_pb2_grpc.add_WorkerServiceServicer_to_server(self.servicer, self.server)
+        
+        # Start heartbeat thread
+        self.stop_heartbeat = threading.Event()
+        self.heartbeat_thread = threading.Thread(target=self._heartbeat_loop)
+        
+    def start(self, port: int = 50051):
+        """Start the worker server and heartbeat thread."""
+        addr = f'[::]:{port}'
+        self.server.add_insecure_port(addr)
+        self.server.start()
+        logger.info(f"Worker server started on {addr}")
+        
+        self.heartbeat_thread.start()
+        logger.info("Heartbeat thread started")
+        
+    def stop(self):
+        """Stop the worker server and heartbeat thread."""
+        self.stop_heartbeat.set()
+        self.heartbeat_thread.join()
+        
+        self.server.stop(0)
+        logger.info("Worker server stopped")
+        
+    def _heartbeat_loop(self):
+        """Send periodic heartbeats to coordinator."""
+        stub = worker_pb2_grpc.WorkerServiceStub(
+            grpc.insecure_channel(self.coordinator_address)
+        )
+        
+        while not self.stop_heartbeat.is_set():
+            try:
+                with self.tasks_lock:
+                    status = "BUSY" if self.tasks else "IDLE"
+                    available_slots = max(0, self.max_workers - len(self.tasks))
+                
+                request = worker_pb2.HeartbeatRequest(
+                    worker_id=self.worker_id,
+                    status=status,
+                    available_slots=available_slots
+                )
+                
+                response = stub.Heartbeat(request)
+                if not response.acknowledged:
+                    logger.warning("Heartbeat not acknowledged by coordinator")
+                    
+            except grpc.RpcError as e:
+                logger.error(f"Failed to send heartbeat: {e}")
+                
+            time.sleep(5)  # Heartbeat interval
+            
+    def get_task_status(self, task_id: str) -> Optional[Dict]:
+        """Get status of a specific task."""
+        with self.tasks_lock:
+            return self.tasks.get(task_id)
+            
+class WorkerServicer(worker_pb2_grpc.WorkerServiceServicer):
+    """Implementation of worker gRPC service."""
+    
+    def __init__(self, worker_server: WorkerServer):
+        self.worker = worker_server
+        
+    def AssignTask(self, request: worker_pb2.TaskAssignment, 
+                  context: grpc.ServicerContext) -> worker_pb2.TaskAck:
+        """Handle task assignment from coordinator."""
+        try:
+            # Register task
+            with self.worker.tasks_lock:
+                if len(self.worker.tasks) >= self.worker.max_workers:
+                    return worker_pb2.TaskAck(
+                        task_id=request.task_id,
+                        accepted=False
+                    )
+                    
+                self.worker.tasks[request.task_id] = {
+                    'status': 'PENDING',
+                    'type': request.task_type,
+                    'job_id': request.job_id,
+                    'input_path': request.input_path,
+                    'output_path': request.output_path
+                }
+            
+            # Start task execution in background
+            threading.Thread(
+                target=self._execute_task,
+                args=(request,),
+                daemon=True
+            ).start()
+            
+            return worker_pb2.TaskAck(
+                task_id=request.task_id,
+                accepted=True
+            )
+            
+        except Exception as e:
+            logger.error(f"Failed to assign task: {e}")
+            return worker_pb2.TaskAck(
+                task_id=request.task_id,
+                accepted=False
+            )
+            
+    def GetTaskStatus(self, request: worker_pb2.TaskStatusRequest,
+                     context: grpc.ServicerContext) -> worker_pb2.TaskStatusResponse:
+        """Report status of a task."""
+        task = self.worker.get_task_status(request.task_id)
+        if not task:
+            return worker_pb2.TaskStatusResponse(
+                task_id=request.task_id,
+                status="UNKNOWN"
+            )
+            
+        return worker_pb2.TaskStatusResponse(
+            task_id=request.task_id,
+            status=task['status']
+        )
+        
+    def _execute_task(self, request: worker_pb2.TaskAssignment):
+        """Execute assigned task using TaskExecutor."""
+        try:
+            # Update task status to RUNNING
+            with self.worker.tasks_lock:
+                self.worker.tasks[request.task_id]['status'] = 'RUNNING'
+            
+            if request.task_type == "MAP":
+                # Execute map task
+                intermediate_files = self.worker.task_executor.execute_map(
+                    request.job_id,
+                    int(request.task_id),
+                    os.path.basename(request.input_path)
+                )
+                
+                # Update task with success status and output
+                with self.worker.tasks_lock:
+                    self.worker.tasks[request.task_id].update({
+                        'status': 'COMPLETED',
+                        'output_files': intermediate_files
+                    })
+                    
+            elif request.task_type == "REDUCE":
+                # Execute reduce task
+                output_file = self.worker.task_executor.execute_reduce(
+                    request.job_id,
+                    int(request.task_id),
+                    request.partition_id
+                )
+                
+                # Update task with success status and output
+                with self.worker.tasks_lock:
+                    self.worker.tasks[request.task_id].update({
+                        'status': 'COMPLETED',
+                        'output_file': output_file
+                    })
+                    
+        except Exception as e:
+            logger.error(f"Task execution failed: {e}")
+            with self.worker.tasks_lock:
+                self.worker.tasks[request.task_id].update({
+                    'status': 'FAILED',
+                    'error': str(e)
+                })
+        """Load map_fn and reduce_fn from job file."""
+        try:
+            # Load the module from file path
+            spec = importlib.util.spec_from_file_location("job_module", self.job_file_path)
+            module = importlib.util.module_from_spec(spec)
+            spec.loader.exec_module(module)
+            
+            # Verify required functions exist
+            if self.task_type == "MAP" and not hasattr(module, "map_fn"):
+                raise ValueError("Job file missing map_fn")
+            if self.task_type == "REDUCE" and not hasattr(module, "reduce_fn"):
+                raise ValueError("Job file missing reduce_fn")
+            
+            return module
+        except Exception as e:
+            raise RuntimeError(f"Failed to load job functions: {str(e)}")
+    
+    def execute_map_task(self):
+        """Execute a map task."""
+        module = self.load_job_functions()
+        
+        # Create partition files
+        partitions = [[] for _ in range(self.num_reduce_tasks)]
+        
+        # Process input file
+        with open(self.input_path, 'r') as f:
+            total_size = os.path.getsize(self.input_path)
+            processed_size = 0
+            
+            for line_num, line in enumerate(f):
+                # Update progress
+                processed_size += len(line)
+                self.progress = (processed_size / total_size) * 100
+                
+                # Process line through map_fn
+                key = line_num
+                for out_key, out_value in module.map_fn(key, line.strip()):
+                    # Partition output
+                    partition = hash(str(out_key)) % self.num_reduce_tasks
+                    partitions[partition].append((out_key, out_value))
+                
+                # Periodically write partitions to disk
+                if line_num % 1000 == 0:
+                    self._write_partitions(partitions)
+                    partitions = [[] for _ in range(self.num_reduce_tasks)]
+        
+        # Write any remaining partitions
+        self._write_partitions(partitions)
+        self.progress = 100
+    
+    def execute_reduce_task(self):
+        """Execute a reduce task."""
+        module = self.load_job_functions()
+        
+        # Read all intermediate files for this partition
+        all_kvs = {}
+        intermediate_pattern = os.path.join(
+            os.path.dirname(self.input_path),
+            f"*_partition_{self.partition_id}.pkl"
+        )
+        
+        intermediate_files = glob.glob(intermediate_pattern)
+        total_files = len(intermediate_files)
+        
+        for i, filepath in enumerate(intermediate_files):
+            with open(filepath, 'rb') as f:
+                partition_data = pickle.load(f)
+                for key, value in partition_data:
+                    if key not in all_kvs:
+                        all_kvs[key] = []
+                    all_kvs[key].append(value)
+            
+            self.progress = ((i + 1) / total_files) * 100
+        
+        # Process each key through reduce_fn
+        with open(self.output_path, 'w') as out_f:
+            for i, (key, values) in enumerate(sorted(all_kvs.items())):
+                for output in module.reduce_fn(key, values):
+                    out_f.write(f"{output[0]}\t{output[1]}\n")
+        
+        self.progress = 100
+    
+    def _write_partitions(self, partitions):
+        """Write partition data to intermediate files."""
+        for i, partition in enumerate(partitions):
+            if partition:  # Only write non-empty partitions
+                path = os.path.join(
+                    os.path.dirname(self.output_path),
+                    f"{self.task_id}_partition_{i}.pkl"
+                )
+                with open(path, 'wb') as f:
+                    pickle.dump(partition, f)
 
 class WorkerServicer(worker_pb2_grpc.WorkerServiceServicer):
     """Implementation of WorkerService."""
@@ -35,7 +310,8 @@ class WorkerServicer(worker_pb2_grpc.WorkerServiceServicer):
         self.coordinator_address = coordinator_address
         self.status = "IDLE"
         self.available_slots = 1
-        self.current_tasks = {}
+        self.current_tasks = {}  # task_id -> TaskExecutor
+        self.task_threads = {}   # task_id -> Thread
         logger.info(f"Worker {worker_id} initialized")
     
     def Heartbeat(self, request, context):
@@ -75,6 +351,33 @@ class WorkerServicer(worker_pb2_grpc.WorkerServiceServicer):
     
     def GetTaskStatus(self, request, context):
         """Get status of a specific task."""
+        task_id = request.task_id
+        
+        if task_id not in self.current_tasks:
+            return worker_pb2.TaskStatusResponse(
+                task_id=task_id,
+                status="UNKNOWN",
+                error_message="Task not found"
+            )
+        
+        executor = self.current_tasks[task_id]
+        
+        # Determine task status
+        if executor.error:
+            status = "FAILED"
+            error_message = executor.error
+        elif executor.progress >= 100:
+            status = "COMPLETED"
+            error_message = ""
+        else:
+            status = "RUNNING"
+            error_message = ""
+        
+        return worker_pb2.TaskStatusResponse(
+            task_id=task_id,
+            status=status,
+            error_message=error_message
+        )
         task_id = request.task_id
         
         if task_id not in self.current_tasks:

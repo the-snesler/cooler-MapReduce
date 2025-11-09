@@ -114,6 +114,18 @@ class CoordinatorServicer(coordinator_pb2_grpc.CoordinatorServiceServicer):
         self.task_scheduler.start()
         logger.info("Coordinator service initialized")
 
+    def _check_worker_timeouts(self):
+        """Check for workers that haven't sent heartbeats recently and mark them as failed."""
+        current_time = time.time()
+        timeout_threshold = 30  # seconds
+        
+        with self.task_scheduler.lock:
+            for worker_id, worker in list(self.workers.items()):
+                if current_time - worker['last_heartbeat'] > timeout_threshold:
+                    logger.warning(f"Worker {worker_id} timed out")
+                    # Handle worker failure (implementation needed)
+                    del self.workers[worker_id]
+    
     def handle_worker_heartbeat(self, worker_id, status, available_slots, cpu_usage):
         """Handle worker heartbeat and update worker state."""
         with self.task_scheduler.lock:
