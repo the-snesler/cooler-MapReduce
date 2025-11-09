@@ -1,0 +1,3 @@
+rain's development branch
+
+implementation of mapreduce core
