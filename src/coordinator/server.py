@@ -3,6 +3,7 @@ Coordinator server for MapReduce framework.
 Manages job submission, task distribution, and worker coordination.
 """
 
+import threading
 import grpc
 from concurrent import futures
 import sys
@@ -36,12 +37,72 @@ class JobState:
         self.job_file_path = request.job_file_path
         self.num_map_tasks = request.num_map_tasks
         self.num_reduce_tasks = request.num_reduce_tasks
-        self.status = "SUBMITTED"
+        self.status = "SUBMITTED"  # SUBMITTED, MAPPING, REDUCING, COMPLETED, FAILED
         self.submit_time = datetime.now().isoformat()
+        self.phase = "MAP"  # MAP or REDUCE
+        
+        # Task tracking
+        self.map_tasks = {}  # task_id -> Task
+        self.reduce_tasks = {}  # task_id -> Task
         self.completed_map_tasks = 0
         self.completed_reduce_tasks = 0
         self.error_message = ""
+        
+        # Intermediate file tracking
+        self.intermediate_files = []  # List of files produced by map tasks
+        
+    def update_progress(self):
+        """Update job progress and phase."""
+        if self.status == "FAILED":
+            return
+            
+        if self.phase == "MAP":
+            completed = sum(1 for t in self.map_tasks.values() if t.status == "COMPLETED")
+            self.completed_map_tasks = completed
+            
+            if completed == self.num_map_tasks:
+                self.phase = "REDUCE"
+                self.status = "REDUCING"
+                
+        elif self.phase == "REDUCE":
+            completed = sum(1 for t in self.reduce_tasks.values() if t.status == "COMPLETED")
+            self.completed_reduce_tasks = completed
+            
+            if completed == self.num_reduce_tasks:
+                self.status = "COMPLETED"
 
+
+def split_input_file(file_path, num_splits):
+    """Split an input file into chunks for map tasks."""
+    try:
+        with open(file_path, 'r') as f:
+            # Get file size
+            f.seek(0, 2)
+            file_size = f.tell()
+            f.seek(0)
+            
+            # Calculate split size (rounded up)
+            split_size = (file_size + num_splits - 1) // num_splits
+            
+            splits = []
+            for i in range(num_splits):
+                start_pos = i * split_size
+                
+                if i == num_splits - 1:
+                    # Last split goes to end of file
+                    end_pos = file_size
+                else:
+                    # Find next newline after split_size
+                    f.seek(min(start_pos + split_size, file_size))
+                    f.readline()  # Read to next newline
+                    end_pos = f.tell()
+                
+                splits.append((start_pos, end_pos))
+            
+            return splits
+    except Exception as e:
+        logger.error(f"Error splitting input file {file_path}: {str(e)}")
+        return None
 
 class CoordinatorServicer(coordinator_pb2_grpc.CoordinatorServiceServicer):
     """Implementation of CoordinatorService."""
@@ -49,7 +110,37 @@ class CoordinatorServicer(coordinator_pb2_grpc.CoordinatorServiceServicer):
     def __init__(self):
         self.jobs = {}  # job_id -> JobState
         self.workers = {}  # worker_id -> worker info
+        self.task_scheduler = TaskScheduler(self)
+        self.task_scheduler.start()
         logger.info("Coordinator service initialized")
+
+    def handle_worker_heartbeat(self, worker_id, status, available_slots, cpu_usage):
+        """Handle worker heartbeat and update worker state."""
+        with self.task_scheduler.lock:
+            if worker_id not in self.workers:
+                self.workers[worker_id] = {
+                    'status': status,
+                    'available_slots': available_slots,
+                    'last_heartbeat': time.time(),
+                    'cpu_usage': cpu_usage,
+                    'task_history': [],  # List of recently completed tasks and their durations
+                    'performance_score': 1.0  # Higher is better
+                }
+            else:
+                worker = self.workers[worker_id]
+                worker['status'] = status
+                worker['available_slots'] = available_slots
+                worker['last_heartbeat'] = time.time()
+                worker['cpu_usage'] = cpu_usage
+                
+                # Update worker performance score based on CPU usage and task history
+                if worker['task_history']:
+                    avg_task_time = sum(t[1] for t in worker['task_history']) / len(worker['task_history'])
+                    cpu_score = 1.0 - (cpu_usage / 100.0)  # Lower CPU usage is better
+                    worker['performance_score'] = (1.0 / avg_task_time) * cpu_score
+                
+        # Check for worker timeouts
+        self._check_worker_timeouts()
     
     def SubmitJob(self, request, context):
         """Handle job submission from client."""
@@ -61,11 +152,42 @@ class CoordinatorServicer(coordinator_pb2_grpc.CoordinatorServiceServicer):
         logger.info(f"  Map tasks: {request.num_map_tasks}")
         logger.info(f"  Reduce tasks: {request.num_reduce_tasks}")
         
+        # Validate input path
+        if not os.path.exists(request.input_path):
+            context.set_code(grpc.StatusCode.INVALID_ARGUMENT)
+            context.set_details(f"Input path does not exist: {request.input_path}")
+            return coordinator_pb2.JobResponse()
+        
         # Create job state
         job_state = JobState(job_id, request)
         self.jobs[job_id] = job_state
         
-        # TODO: Create and schedule tasks
+        # Split input file for map tasks
+        splits = split_input_file(request.input_path, request.num_map_tasks)
+        if splits is None:
+            job_state.status = "FAILED"
+            job_state.error_message = f"Failed to split input file: {request.input_path}"
+            return coordinator_pb2.JobResponse(
+                job_id=job_id,
+                status="FAILED"
+            )
+        
+        # Create map tasks
+        for i, (start_pos, end_pos) in enumerate(splits):
+            task_id = f"{job_id}_map_{i}"
+            task = Task(
+                task_id=task_id,
+                job_id=job_id,
+                task_type="MAP",
+                input_path=request.input_path,
+                output_path=os.path.join(request.output_path, f"intermediate_{i}"),
+                num_reducers=request.num_reduce_tasks
+            )
+            job_state.map_tasks[task_id] = task
+            self.task_scheduler.add_task(task)
+        
+        # Update job status
+        job_state.status = "MAPPING"
         
         return coordinator_pb2.JobResponse(
             job_id=job_id,
@@ -124,6 +246,262 @@ class CoordinatorServicer(coordinator_pb2_grpc.CoordinatorServiceServicer):
             status=job_state.status,
             output_files=output_files
         )
+
+    # add new classes
+class Task:
+    """Represents a map or reduce task in the system."""
+    def __init__(self, task_id, job_id, task_type, input_path, output_path, partition_id=None, num_reducers=None):
+        self.task_id = task_id
+        self.job_id = job_id
+        self.task_type = task_type  # "MAP" or "REDUCE"
+        self.input_path = input_path
+        self.output_path = output_path
+        self.partition_id = partition_id
+        self.num_reducers = num_reducers  # Needed for map tasks to partition output
+        self.status = "PENDING"  # "PENDING", "IN_PROGRESS", "COMPLETED", "FAILED"
+        self.assigned_worker = None
+        self.start_time = None
+        self.end_time = None
+        self.error_message = ""
+        self.retries = 0
+        self.max_retries = 3
+    
+    def assign_to_worker(self, worker_id):
+        """Assign task to a worker."""
+        self.assigned_worker = worker_id
+        self.status = "IN_PROGRESS"
+        self.start_time = datetime.now().isoformat()
+    
+    def complete(self):
+        """Mark task as completed."""
+        self.status = "COMPLETED"
+        self.end_time = datetime.now().isoformat()
+    
+    def fail(self, error_msg):
+        """Mark task as failed with error message."""
+        self.status = "FAILED"
+        self.error_message = error_msg
+        self.end_time = datetime.now().isoformat()
+        self.assigned_worker = None
+        return self.retries < self.max_retries
+
+from queue import PriorityQueue
+from dataclasses import dataclass, field
+from typing import Any
+import time
+
+@dataclass(order=True)
+class PrioritizedTask:
+    """Task wrapper with priority information."""
+    priority: int
+    task: Any = field(compare=False)
+    timestamp: float = field(compare=False, default_factory=time.time)
+
+class TaskScheduler:
+    """Manages task scheduling and worker assignments."""
+    def __init__(self, coordinator_servicer):
+        self.coordinator_servicer = coordinator_servicer
+        self.pending_tasks = PriorityQueue()  # Priority queue of tasks
+        self.running_tasks = {}  # task_id -> Task
+        self.worker_tasks = {}   # worker_id -> [task_ids]
+        self.task_start_times = {}  # task_id -> start_time
+        self.straggler_threshold = 2.0  # Tasks taking 2x longer than average are stragglers
+        self.lock = threading.Lock()
+        self.scheduler_thread = threading.Thread(target=self._schedule_loop, daemon=True)
+        self.monitor_thread = threading.Thread(target=self._monitor_stragglers, daemon=True)
+        self.running = True
+    
+    def start(self):
+        """Start the scheduler thread."""
+        self.scheduler_thread.start()
+        logger.info("Task scheduler started")
+    
+    def stop(self):
+        """Stop the scheduler thread."""
+        self.running = False
+        self.scheduler_thread.join()
+        logger.info("Task scheduler stopped")
+    
+    def start(self):
+        """Start the scheduler and monitor threads."""
+        self.scheduler_thread.start()
+        self.monitor_thread.start()
+        logger.info("Task scheduler and monitor started")
+
+    def add_task(self, task):
+        """Add a new task to be scheduled with appropriate priority."""
+        priority = self._calculate_task_priority(task)
+        with self.lock:
+            self.pending_tasks.put(PrioritizedTask(priority=priority, task=task))
+            logger.info(f"Task {task.task_id} added to scheduling queue with priority {priority}")
+    
+    def _calculate_task_priority(self, task):
+        """Calculate task priority based on various factors."""
+        priority = 0
+        
+        # Higher priority (lower number) for:
+        # 1. Reduce tasks when most map tasks are done
+        if task.task_type == "REDUCE":
+            job_state = self.coordinator_servicer.jobs[task.job_id]
+            if job_state.completed_map_tasks > 0.8 * job_state.num_map_tasks:
+                priority -= 10
+        
+        # 2. Retried tasks
+        priority -= task.retries * 5
+        
+        # 3. Tasks from jobs that have been waiting longer
+        job_state = self.coordinator_servicer.jobs[task.job_id]
+        wait_time = time.time() - datetime.fromisoformat(job_state.submit_time).timestamp()
+        priority -= min(int(wait_time / 60), 20)  # Up to -20 for waiting
+        
+        return priority
+    
+    def _schedule_loop(self):
+        """Main scheduling loop."""
+        while self.running:
+            with self.lock:
+                self._assign_pending_tasks()
+            time.sleep(1)  # Check every second
+    
+    def _assign_pending_tasks(self):
+        """Assign pending tasks to available workers based on performance."""
+        # Sort workers by performance score
+        available_workers = [
+            (worker_id, info) for worker_id, info in self.coordinator_servicer.workers.items()
+            if info['status'] == "IDLE" and info['available_slots'] > 0
+        ]
+        
+        available_workers.sort(key=lambda x: x[1]['performance_score'], reverse=True)
+        
+        for worker_id, worker_info in available_workers:
+            while worker_info['available_slots'] > 0 and not self.pending_tasks.empty():
+                prioritized_task = self.pending_tasks.get()
+                task = prioritized_task.task
+                self._assign_task_to_worker(worker_id, task)
+                worker_info['available_slots'] -= 1
+                
+    def _monitor_stragglers(self):
+        """Monitor for straggler tasks and reassign if needed."""
+        while self.running:
+            with self.lock:
+                self._check_stragglers()
+            time.sleep(10)  # Check every 10 seconds
+    
+    def _check_stragglers(self):
+        """Identify and handle straggler tasks."""
+        current_time = time.time()
+        
+        # Calculate average task duration for each job
+        job_task_durations = {}  # job_id -> list of durations
+        
+        for task_id, start_time in self.task_start_times.items():
+            if task_id in self.running_tasks:
+                task = self.running_tasks[task_id]
+                duration = current_time - start_time
+                
+                if task.job_id not in job_task_durations:
+                    job_task_durations[task.job_id] = []
+                job_task_durations[task.job_id].append(duration)
+        
+        # Check for stragglers
+        for task_id, start_time in self.task_start_times.items():
+            if task_id not in self.running_tasks:
+                continue
+                
+            task = self.running_tasks[task_id]
+            duration = current_time - start_time
+            
+            # Calculate average duration for this job's tasks
+            avg_duration = sum(job_task_durations[task.job_id]) / len(job_task_durations[task.job_id])
+            
+            # If task is taking too long, create a backup task
+            if duration > avg_duration * self.straggler_threshold:
+                logger.warning(f"Task {task_id} identified as straggler. Duration: {duration:.2f}s, Avg: {avg_duration:.2f}s")
+                self._handle_straggler(task)
+    
+    def _assign_task_to_worker(self, worker_id, task):
+        """Assign a specific task to a worker."""
+        task.assign_to_worker(worker_id)
+        self.running_tasks[task.task_id] = task
+        
+        if worker_id not in self.worker_tasks:
+            self.worker_tasks[worker_id] = []
+        self.worker_tasks[worker_id].append(task.task_id)
+        
+        # Create the task assignment
+        assignment = worker_pb2.TaskAssignment(
+            task_id=task.task_id,
+            task_type=task.task_type,
+            job_id=task.job_id,
+            input_path=task.input_path,
+            output_path=task.output_path,
+            job_file_path=self.coordinator_servicer.jobs[task.job_id].job_file_path,
+            partition_id=task.partition_id if task.partition_id is not None else 0,
+            num_reduce_tasks=task.num_reducers if task.num_reducers is not None else 1
+        )
+        
+        # Send assignment to worker (non-blocking)
+        threading.Thread(
+            target=self._send_assignment_to_worker,
+            args=(worker_id, assignment, task),
+            daemon=True
+        ).start()
+    
+    def _send_assignment_to_worker(self, worker_id, assignment, task):
+        """Send task assignment to worker via gRPC."""
+        try:
+            worker_addr = self.coordinator_servicer.workers[worker_id]['address']
+            with grpc.insecure_channel(worker_addr) as channel:
+                stub = worker_pb2_grpc.WorkerServiceStub(channel)
+                response = stub.AssignTask(assignment)
+                
+                if not response.accepted:
+                    logger.error(f"Worker {worker_id} rejected task {task.task_id}")
+                    self._handle_task_failure(task, "Worker rejected task")
+        except grpc.RpcError as e:
+            logger.error(f"Failed to assign task {task.task_id} to worker {worker_id}: {str(e)}")
+            self._handle_task_failure(task, str(e))
+    
+    def _handle_task_failure(self, task, error_msg):
+        """Handle task failure and potential retry."""
+        with self.lock:
+            if task.fail(error_msg):
+                # Can retry
+                task.retries += 1
+                self.add_task(task)  # Use priority queue
+                logger.info(f"Task {task.task_id} queued for retry ({task.retries}/{task.max_retries})")
+            else:
+                # Max retries exceeded
+                logger.error(f"Task {task.task_id} failed permanently after {task.retries} retries")
+                # Update job status
+                job_state = self.coordinator_servicer.jobs[task.job_id]
+                job_state.status = "FAILED"
+                job_state.error_message = f"Task {task.task_id} failed: {error_msg}"
+    
+    def _handle_straggler(self, task):
+        """Handle a straggler task by creating a backup task."""
+        if task.status != "IN_PROGRESS":
+            return
+            
+        # Create a backup task
+        backup_task = Task(
+            task_id=f"{task.task_id}_backup",
+            job_id=task.job_id,
+            task_type=task.task_type,
+            input_path=task.input_path,
+            output_path=f"{task.output_path}_backup",
+            partition_id=task.partition_id,
+            num_reducers=task.num_reducers
+        )
+        
+        # Add to queue with high priority
+        backup_task.retries = task.max_retries - 1  # Give it high priority
+        self.add_task(backup_task)
+        
+        logger.info(f"Created backup task {backup_task.task_id} for straggler {task.task_id}")
+        
+        # First task to complete will be considered successful
+        # The other task will be cancelled when the first one completes
 
 
 def serve(port=50051):
