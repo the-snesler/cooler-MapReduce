@@ -95,7 +95,9 @@ python -m pytest tests/test_job_pipeline.py tests/test_week2.py tests/test_task_
 # Run specific test files
 python -m pytest tests/test_job_pipeline.py -v  # Job state tests
 python -m pytest tests/test_week2.py -v         # Task execution tests
-python -m pytest tests/test_shuffle.py -v       # Shuffle phase test
+python -m pytest tests/test_task_executor.py -v
+python -m pytest tests/test_shuffle.py -v       # Shuffle phase test 1
+python -m pytest tests/test_shuffle_data_fetch.py -v # shuffle phase updated test
 ```
 
 ## Next Steps

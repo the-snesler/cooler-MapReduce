@@ -129,13 +129,16 @@ class WorkerServicer(worker_pb2_grpc.WorkerServiceServicer):
                     'type': request.task_type,
                     'job_id': request.job_id,
                     'input_path': request.input_path,
-                    'output_path': request.output_path
+                    'output_path': request.output_path,
+
+                    # store shuffle locations from the request
+                    'shuffle_locations': [(loc.worker_address, loc.file_name) for loc in request.shuffle_locations]
                 }
             
             # Start task execution in background
             threading.Thread(
                 target=self._execute_task,
-                args=(request,),
+                args=(request,), # request object holds the data
                 daemon=True
             ).start()
             
@@ -189,11 +192,18 @@ class WorkerServicer(worker_pb2_grpc.WorkerServiceServicer):
                     })
                     
             elif request.task_type == "REDUCE":
+                # retrieve the necessary shuffle locations for the TaskExecutor
+                # we must retrieve the locations stored when the task was accepted
+                with self.worker.tasks_lock:
+                    task_info = self.worker.tasks[request.task_id]
+                    shuffle_locations = task_info.get('shuffle_locations', [])
+
                 # Execute reduce task
                 output_file = self.worker.task_executor.execute_reduce(
                     request.job_id,
                     int(request.task_id),
-                    request.partition_id
+                    request.partition_id,
+                    shuffle_locations # pass the collected locations: list of (worker_address, file_name
                 )
                 
                 # Update task with success status and output
@@ -303,97 +313,33 @@ class WorkerServicer(worker_pb2_grpc.WorkerServiceServicer):
                 with open(path, 'wb') as f:
                     pickle.dump(partition, f)
 
-class WorkerServicer(worker_pb2_grpc.WorkerServiceServicer):
-    """Implementation of WorkerService."""
-    
-    def __init__(self, worker_id, coordinator_address):
-        self.worker_id = worker_id
-        self.coordinator_address = coordinator_address
-        self.status = "IDLE"
-        self.available_slots = 1
-        self.current_tasks = {}  # task_id -> TaskExecutor
-        self.task_threads = {}   # task_id -> Thread
-        logger.info(f"Worker {worker_id} initialized")
-    
-    def Heartbeat(self, request, context):
-        """Receive heartbeat from coordinator (currently not used in this direction)."""
-        return worker_pb2.HeartbeatResponse(acknowledged=True)
-    
-    def AssignTask(self, request, context):
-        """Receive task assignment from coordinator."""
-        task_id = request.task_id
-        task_type = request.task_type
+    def FetchIntermediateFile(self, request: worker_pb2.FileRequest, 
+                          context: grpc.ServicerContext) -> worker_pb2.FileResponse:
+        """Serves an intermediate file to another worker for the shuffle phase."""
+        file_name = request.file_name
         
-        logger.info(f"Worker {self.worker_id} received task assignment: {task_id} ({task_type})")
+        # Use the WorkerServer's TaskExecutor to determine the file path
+        file_path = os.path.join(self.worker.task_executor.intermediate_dir, file_name)
         
-        # Check if we can accept the task
-        if self.available_slots <= 0:
-            logger.warning(f"Worker {self.worker_id} has no available slots")
-            return worker_pb2.TaskAck(task_id=task_id, accepted=False)
-        
-        # Accept the task
-        self.current_tasks[task_id] = {
-            'status': 'PENDING',
-            'task_type': task_type,
-            'job_id': request.job_id,
-            'input_path': request.input_path,
-            'output_path': request.output_path,
-            'job_file_path': request.job_file_path,
-            'partition_id': request.partition_id,
-            'num_reduce_tasks': request.num_reduce_tasks
-        }
-        
-        self.available_slots -= 1
-        self.status = "BUSY" if self.available_slots == 0 else "IDLE"
-        
-        # TODO: Start task execution in background thread
-        
-        return worker_pb2.TaskAck(task_id=task_id, accepted=True)
-    
-    def GetTaskStatus(self, request, context):
-        """Get status of a specific task."""
-        task_id = request.task_id
-        
-        if task_id not in self.current_tasks:
-            return worker_pb2.TaskStatusResponse(
-                task_id=task_id,
-                status="UNKNOWN",
-                error_message="Task not found"
-            )
-        
-        executor = self.current_tasks[task_id]
-        
-        # Determine task status
-        if executor.error:
-            status = "FAILED"
-            error_message = executor.error
-        elif executor.progress >= 100:
-            status = "COMPLETED"
-            error_message = ""
-        else:
-            status = "RUNNING"
-            error_message = ""
-        
-        return worker_pb2.TaskStatusResponse(
-            task_id=task_id,
-            status=status,
-            error_message=error_message
-        )
-        task_id = request.task_id
-        
-        if task_id not in self.current_tasks:
+        if not os.path.exists(file_path):
+            logger.error(f"Intermediate file not found: {file_name}")
             context.set_code(grpc.StatusCode.NOT_FOUND)
-            context.set_details(f"Task {task_id} not found")
-            return worker_pb2.TaskStatusResponse()
-        
-        task_info = self.current_tasks[task_id]
-        
-        return worker_pb2.TaskStatusResponse(
-            task_id=task_id,
-            status=task_info['status'],
-            error_message=task_info.get('error_message', '')
-        )
+            context.set_details(f"File {file_name} not found on this worker.")
+            return worker_pb2.FileResponse(file_data=b'')
 
+        try:
+            # Read the binary content of the pickled file
+            with open(file_path, 'rb') as f:
+                file_data = f.read()
+            
+            logger.info(f"Served file {file_name} ({len(file_data)} bytes)")
+            return worker_pb2.FileResponse(file_data=file_data)
+            
+        except Exception as e:
+            logger.error(f"Error serving file {file_name}: {str(e)}")
+            context.set_code(grpc.StatusCode.INTERNAL)
+            context.set_details(f"Error reading file: {str(e)}")
+            return worker_pb2.FileResponse(file_data=b'')
 
 class HeartbeatSender:
     """Sends periodic heartbeats to the coordinator."""

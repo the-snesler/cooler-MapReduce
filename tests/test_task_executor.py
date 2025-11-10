@@ -64,6 +64,11 @@ class TestTaskExecutor(unittest.TestCase):
         self.assertEqual(mapped_data, expected)
 
     def test_reduce_execution(self):
+        """
+        Test the Merge and Reduce logic using a mock Shuffle input.
+        Note: This test no longer uses glob.glob; it feeds the file path directly 
+        as the "shuffle location" to verify the internal aggregation logic.
+        """
         # Create test intermediate data
         intermediate_data = [
             ('hello', 1),
@@ -72,13 +77,35 @@ class TestTaskExecutor(unittest.TestCase):
             ('mapreduce', 1)
         ]
         
+        # Define the file name used in this test
+        test_file_name = 'test_job_map_1_part_0.pickle'
         os.makedirs(os.path.join(self.test_dir, 'intermediate'), exist_ok=True)
-        with open(os.path.join(self.test_dir, 'intermediate', 
-                              'test_job_map_1_part_0.pickle'), 'wb') as f:
+        
+        # 1. Create the local intermediate file
+        with open(os.path.join(self.test_dir, 'intermediate', test_file_name), 'wb') as f:
             pickle.dump(intermediate_data, f)
-            
-        # Test reduce task execution
-        output_file = self.executor.execute_reduce('test_job', 1, 0)
+        
+        # 2. Define the mock shuffle locations pointing to the local file
+        # NOTE: The execute_reduce logic will try to fetch this remotely.
+        # We must MOCK the gRPC fetch method to read the local file instead.
+        
+        mock_locations = [
+            ('127.0.0.1:0000', test_file_name) # Mock address, real file name
+        ]
+        
+        # 3. MOCK the gRPC fetch helper to read the local file data
+        def mock_fetch_file(self_executor, worker_address, file_name):
+            # We need the full path here since the mock bypasses the network
+            local_path = os.path.join(self_executor.intermediate_dir, file_name)
+            with open(local_path, 'rb') as f:
+                return f.read()
+
+        # Use patch to temporarily replace the _fetch_file_via_grpc method
+        with patch.object(self.executor, '_fetch_file_via_grpc', side_effect=mock_fetch_file) as mock_fetch:
+            # Test reduce task execution with the required new argument
+            output_file = self.executor.execute_reduce('test_job', 1, 0, mock_locations) # <--- FIXED CALL
+
+        # Verify output file content (rest of logic remains the same)
         self.assertTrue(output_file)
         
         # Verify output file content

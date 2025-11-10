@@ -35,6 +35,12 @@ message HeartbeatResponse {
   bool acknowledged = 1;
 }
 
+// structure to hold the address and file name for one intermediate file chunk
+message Location {
+  string worker_address = 1;
+  string file_name = 2;
+}
+
 // Task assignment from coordinator to worker
 message TaskAssignment {
   string task_id = 1;
@@ -45,6 +51,7 @@ message TaskAssignment {
   string job_file_path = 6;     // Path to user job file
   int32 partition_id = 7;       // For reduce tasks
   int32 num_reduce_tasks = 8;   // Total number of reduce tasks (for partitioning)
+  repeated Location shuffle_locations = 9; // list of intermediate file locations for the shuffle phase for reduce tasks
 }
 
 // Acknowledgment of task assignment
