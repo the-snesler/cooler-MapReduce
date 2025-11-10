@@ -313,17 +313,23 @@ class CoordinatorServicer(coordinator_pb2_grpc.CoordinatorServiceServicer):
     def GetJobResults(self, request, context):
         """Get results of a completed job."""
         job_id = request.job_id
-        
+
         if job_id not in self.jobs:
             context.set_code(grpc.StatusCode.NOT_FOUND)
             context.set_details(f"Job {job_id} not found")
             return coordinator_pb2.JobResultsResponse()
-        
+
         job_state = self.jobs[job_id]
-        
-        # TODO: Collect output file paths
+
+        # Collect output file paths from completed reduce tasks
         output_files = []
-        
+        if job_state.status == "COMPLETED":
+            output_dir = os.path.join("/shared", "output")
+            for task_id in range(job_state.num_reduce_tasks):
+                output_file = os.path.join(output_dir, f"{job_id}_reduce_{task_id}.out")
+                if os.path.exists(output_file):
+                    output_files.append(output_file)
+
         return coordinator_pb2.JobResultsResponse(
             job_id=job_id,
             status=job_state.status,
