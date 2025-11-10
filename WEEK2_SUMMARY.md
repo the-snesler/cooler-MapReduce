@@ -90,11 +90,12 @@ def reduce_fn(key, values):
 ## Running Tests
 ```bash
 # Run all Week 2 tests
-python -m pytest tests/test_job_pipeline.py tests/test_week2.py -v
+python -m pytest tests/test_job_pipeline.py tests/test_week2.py tests/test_task_executor.py -v
 
 # Run specific test files
 python -m pytest tests/test_job_pipeline.py -v  # Job state tests
 python -m pytest tests/test_week2.py -v         # Task execution tests
+python -m pytest tests/test_shuffle.py -v       # Shuffle phase test
 ```
 
 ## Next Steps

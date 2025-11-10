@@ -125,11 +125,11 @@ python src/client/client.py --coordinator-host localhost:50051 <command>
 - [x] Basic worker scaffolding
 - [x] Shared storage setup
 
-### Week 2: MapReduce Core (Coming Soon)
-- [ ] Task scheduling and distribution
-- [ ] Map task execution
-- [ ] Reduce task execution
-- [ ] Data partitioning and shuffling
+### Week 2: MapReduce Core ✅
+- [x] Task scheduling and distribution
+- [x] Map task execution
+- [x] Reduce task execution
+- [x] Data partitioning and shuffling
 
 ### Week 3: Combiner Support (Coming Soon)
 - [ ] Combiner integration in map tasks

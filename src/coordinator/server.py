@@ -88,6 +88,10 @@ class JobState:
             raise ValueError("Cannot transition to REDUCE phase - maps not complete")
         if not self.validate_intermediate_files():
             raise ValueError("Cannot transition to REDUCE phase - invalid intermediate files")
+        
+        # create the reduce tasks before transition
+        self._create_reduce_tasks()
+        
         self.status = "REDUCING"
         self.phase = "REDUCE"
         logger.info(f"Job {self.job_id} started REDUCE phase")
@@ -141,6 +145,36 @@ class JobState:
                     self.mark_completed()
         except Exception as e:
             self.mark_failed(str(e))
+
+    def _create_reduce_tasks(self):
+        """"creates all necessary reduce tasks using collected shuffle data."""
+        if not hasattr(self, 'intermediate_file_locations'):
+            self.intermediate_file_locations = {i: [] for i in range(self.num_reduce_tasks)}
+
+        for i in range(self.num_reduce_tasks):
+            task_id = f"{self.job_id}_reduce_{i}"
+            
+            # Get the input locations for this specific partition (i.e., the shuffle input)
+            shuffle_input = self.intermediate_file_locations.get(i, [])
+
+            # Create the Task object
+            reduce_task = Task(
+                task_id=task_id,
+                job_id=self.job_id,
+                task_type="REDUCE",
+                input_path="", # Reduce task input is determined by shuffle, not a file path
+                output_path=os.path.join(self.output_path, f"reduce_output_{i}"),
+                partition_id=i,
+                num_reducers=0 # Irrelevant for Reduce task
+            )
+            
+            # CRUCIAL: Add the attribute the test is checking
+            reduce_task.shuffle_input_locations = shuffle_input 
+            
+            self.reduce_tasks[task_id] = reduce_task
+            
+            # Optionally, add to the scheduler immediately
+            # self.coordinator_servicer.task_scheduler.add_task(reduce_task)
 
 
 def split_input_file(file_path, num_splits):

@@ -7,7 +7,21 @@ service WorkerService {
   rpc Heartbeat(HeartbeatRequest) returns (HeartbeatResponse);
   rpc AssignTask(TaskAssignment) returns (TaskAck);
   rpc GetTaskStatus(TaskStatusRequest) returns (TaskStatusResponse);
+
+  // RPC for cross-worker Shuffle data transfer
+  rpc FetchIntermediateFile(FileRequest) returns (FileResponse);
 }
+
+// request for a specific intermediate file by name
+message FileRequest {
+    string file_name = 1;
+}
+
+// response containing the intermediate file's data
+message FileResponse {
+    bytes file_data = 1; // Binary content of the pickled file
+}
+
 
 // Heartbeat sent by worker to coordinator
 message HeartbeatRequest {

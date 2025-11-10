@@ -30,6 +30,11 @@ class WorkerServiceStub(object):
                 request_serializer=worker__pb2.TaskStatusRequest.SerializeToString,
                 response_deserializer=worker__pb2.TaskStatusResponse.FromString,
                 )
+        self.FetchIntermediateFile = channel.unary_unary(
+                '/mapreduce.WorkerService/FetchIntermediateFile',
+                request_serializer=worker__pb2.FileRequest.SerializeToString,
+                response_deserializer=worker__pb2.FileResponse.FromString,
+                )
 
 
 class WorkerServiceServicer(object):
@@ -54,6 +59,13 @@ class WorkerServiceServicer(object):
         context.set_details('Method not implemented!')
         raise NotImplementedError('Method not implemented!')
 
+    def FetchIntermediateFile(self, request, context):
+        """RPC for cross-worker Shuffle data transfer
+        """
+        context.set_code(grpc.StatusCode.UNIMPLEMENTED)
+        context.set_details('Method not implemented!')
+        raise NotImplementedError('Method not implemented!')
+
 
 def add_WorkerServiceServicer_to_server(servicer, server):
     rpc_method_handlers = {
@@ -71,6 +83,11 @@ def add_WorkerServiceServicer_to_server(servicer, server):
                     servicer.GetTaskStatus,
                     request_deserializer=worker__pb2.TaskStatusRequest.FromString,
                     response_serializer=worker__pb2.TaskStatusResponse.SerializeToString,
+            ),
+            'FetchIntermediateFile': grpc.unary_unary_rpc_method_handler(
+                    servicer.FetchIntermediateFile,
+                    request_deserializer=worker__pb2.FileRequest.FromString,
+                    response_serializer=worker__pb2.FileResponse.SerializeToString,
             ),
     }
     generic_handler = grpc.method_handlers_generic_handler(
@@ -131,5 +148,22 @@ class WorkerService(object):
         return grpc.experimental.unary_unary(request, target, '/mapreduce.WorkerService/GetTaskStatus',
             worker__pb2.TaskStatusRequest.SerializeToString,
             worker__pb2.TaskStatusResponse.FromString,
+            options, channel_credentials,
+            insecure, call_credentials, compression, wait_for_ready, timeout, metadata)
+
+    @staticmethod
+    def FetchIntermediateFile(request,
+            target,
+            options=(),
+            channel_credentials=None,
+            call_credentials=None,
+            insecure=False,
+            compression=None,
+            wait_for_ready=None,
+            timeout=None,
+            metadata=None):
+        return grpc.experimental.unary_unary(request, target, '/mapreduce.WorkerService/FetchIntermediateFile',
+            worker__pb2.FileRequest.SerializeToString,
+            worker__pb2.FileResponse.FromString,
             options, channel_credentials,
             insecure, call_credentials, compression, wait_for_ready, timeout, metadata)
