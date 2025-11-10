@@ -17,6 +17,10 @@ def sample_reduce_fn(key, values):
     """Reduce function for testing."""
     return sum(values)
 
+def sample_combine_fn(key, values):
+    """Combiner function for testing - same as reduce for word count."""
+    return sum(values)
+
 class TestTaskExecutor(unittest.TestCase):
     def setUp(self):
         # Create test directories
@@ -213,6 +217,146 @@ class TestTaskExecutor(unittest.TestCase):
             self.assertFalse(os.path.exists(
                 os.path.join(self.test_dir, 'intermediate', file_name)
             ))
+
+    def test_combiner_with_wordcount(self):
+        """Test map execution with combiner enabled for word count."""
+        # Create job with combiner
+        job_data_with_combiner = {
+            'map_fn': sample_map_fn,
+            'reduce_fn': sample_reduce_fn,
+            'combine_fn': sample_combine_fn
+        }
+        with open(os.path.join(self.test_dir, 'jobs', 'test_job_combiner.pickle'), 'wb') as f:
+            pickle.dump(job_data_with_combiner, f)
+
+        # Create input with repeated words
+        with open(os.path.join(self.test_dir, 'input', 'combiner_test.txt'), 'w') as f:
+            f.write("hello hello hello world world hello mapreduce mapreduce hello")
+
+        # Execute map task with combiner
+        result_files = self.executor.execute_map('test_job_combiner', 1, 'combiner_test.txt')
+
+        # Verify intermediate file content
+        with open(os.path.join(self.test_dir, 'intermediate', result_files[0]), 'rb') as f:
+            combined_data = pickle.load(f)
+
+        # With combiner, each key should appear only once with aggregated count
+        data_dict = {k: v for k, v in combined_data}
+        self.assertEqual(data_dict['hello'], 5)
+        self.assertEqual(data_dict['world'], 2)
+        self.assertEqual(data_dict['mapreduce'], 2)
+        self.assertEqual(len(data_dict), 3)  # Only 3 unique keys
+
+    def test_combiner_reduces_data_size(self):
+        """Test that combiner reduces intermediate data size."""
+        # Job without combiner
+        job_data_no_combiner = {
+            'map_fn': sample_map_fn,
+            'reduce_fn': sample_reduce_fn
+        }
+        with open(os.path.join(self.test_dir, 'jobs', 'test_job_no_combiner.pickle'), 'wb') as f:
+            pickle.dump(job_data_no_combiner, f)
+
+        # Job with combiner
+        job_data_with_combiner = {
+            'map_fn': sample_map_fn,
+            'reduce_fn': sample_reduce_fn,
+            'combine_fn': sample_combine_fn
+        }
+        with open(os.path.join(self.test_dir, 'jobs', 'test_job_with_combiner.pickle'), 'wb') as f:
+            pickle.dump(job_data_with_combiner, f)
+
+        # Create input with many repeated words
+        with open(os.path.join(self.test_dir, 'input', 'size_test.txt'), 'w') as f:
+            # Repeat "test word other" 100 times
+            f.write(" ".join(["test word other"] * 100))
+
+        # Execute without combiner
+        result_no_combiner = self.executor.execute_map('test_job_no_combiner', 1, 'size_test.txt')
+        with open(os.path.join(self.test_dir, 'intermediate', result_no_combiner[0]), 'rb') as f:
+            data_no_combiner = pickle.load(f)
+
+        # Execute with combiner
+        result_with_combiner = self.executor.execute_map('test_job_with_combiner', 2, 'size_test.txt')
+        with open(os.path.join(self.test_dir, 'intermediate', result_with_combiner[0]), 'rb') as f:
+            data_with_combiner = pickle.load(f)
+
+        # Verify combiner reduced data size significantly
+        self.assertEqual(len(data_no_combiner), 300)  # 3 words * 100 repetitions
+        self.assertEqual(len(data_with_combiner), 3)  # Only 3 unique keys after combining
+        self.assertLess(len(data_with_combiner), len(data_no_combiner) / 50)  # At least 50x reduction
+
+    def test_combiner_correctness(self):
+        """Test that combiner produces same final result as without combiner."""
+        # Create jobs with and without combiner
+        job_no_combiner = {
+            'map_fn': sample_map_fn,
+            'reduce_fn': sample_reduce_fn
+        }
+        with open(os.path.join(self.test_dir, 'jobs', 'job_no_comb.pickle'), 'wb') as f:
+            pickle.dump(job_no_combiner, f)
+
+        job_with_combiner = {
+            'map_fn': sample_map_fn,
+            'reduce_fn': sample_reduce_fn,
+            'combine_fn': sample_combine_fn
+        }
+        with open(os.path.join(self.test_dir, 'jobs', 'job_with_comb.pickle'), 'wb') as f:
+            pickle.dump(job_with_combiner, f)
+
+        # Create test input
+        with open(os.path.join(self.test_dir, 'input', 'correctness_test.txt'), 'w') as f:
+            f.write("apple banana apple cherry banana apple")
+
+        # Execute map tasks
+        result_no_comb = self.executor.execute_map('job_no_comb', 1, 'correctness_test.txt')
+        result_with_comb = self.executor.execute_map('job_with_comb', 2, 'correctness_test.txt')
+
+        # Execute reduce tasks for both
+        output_no_comb = self.executor.execute_reduce('job_no_comb', 1, 0)
+        output_with_comb = self.executor.execute_reduce('job_with_comb', 2, 0)
+
+        # Read and compare final outputs
+        with open(os.path.join(self.test_dir, 'output', output_no_comb), 'r') as f:
+            results_no_comb = {}
+            for line in f:
+                key, value = line.strip().split('\t')
+                results_no_comb[key] = int(value)
+
+        with open(os.path.join(self.test_dir, 'output', output_with_comb), 'r') as f:
+            results_with_comb = {}
+            for line in f:
+                key, value = line.strip().split('\t')
+                results_with_comb[key] = int(value)
+
+        # Verify identical results
+        self.assertEqual(results_no_comb, results_with_comb)
+        self.assertEqual(results_no_comb['apple'], 3)
+        self.assertEqual(results_no_comb['banana'], 2)
+        self.assertEqual(results_no_comb['cherry'], 1)
+
+    def test_combiner_progress_tracking(self):
+        """Test that progress tracking includes COMBINING state."""
+        # Create job with combiner
+        job_data = {
+            'map_fn': sample_map_fn,
+            'reduce_fn': sample_reduce_fn,
+            'combine_fn': sample_combine_fn
+        }
+        with open(os.path.join(self.test_dir, 'jobs', 'progress_comb_job.pickle'), 'wb') as f:
+            pickle.dump(job_data, f)
+
+        # Create input file
+        with open(os.path.join(self.test_dir, 'input', 'progress_comb.txt'), 'w') as f:
+            f.write("test " * 100)
+
+        # Execute map task with combiner
+        self.executor.execute_map('progress_comb_job', 99, 'progress_comb.txt')
+
+        # Verify task completed
+        progress, state = self.executor.get_task_progress('progress_comb_job', 99)
+        self.assertEqual(progress, 1.0)
+        self.assertEqual(state, "COMPLETED")
 
 if __name__ == '__main__':
     unittest.main()

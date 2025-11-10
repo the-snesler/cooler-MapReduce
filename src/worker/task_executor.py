@@ -8,7 +8,7 @@ import pickle
 import psutil
 import logging
 import threading
-from typing import Any, Dict, List, Tuple, Callable
+from typing import Any, Dict, List, Tuple, Callable, Optional
 from concurrent.futures import ThreadPoolExecutor
 
 class TaskExecutor:
@@ -70,12 +70,15 @@ class TaskExecutor:
         except Exception as e:
             logging.warning(f"Cleanup failed for task {task_key}: {str(e)}")
 
-    def _load_job_functions(self, job_id: str) -> Tuple[Callable, Callable]:
-        """Load map and reduce functions from the job pickle file."""
+    def _load_job_functions(self, job_id: str) -> Tuple[Callable, Callable, Optional[Callable]]:
+        """Load map, reduce, and optional combine functions from the job pickle file."""
         job_file = os.path.join(self.jobs_dir, f"{job_id}.pickle")
         with open(job_file, 'rb') as f:
             job_data = pickle.load(f)
-        return job_data['map_fn'], job_data['reduce_fn']
+
+        # Combine function is optional
+        combine_fn = job_data.get('combine_fn', None)
+        return job_data['map_fn'], job_data['reduce_fn'], combine_fn
 
     def get_memory_usage(self) -> float:
         """Get current memory usage in bytes."""
@@ -89,21 +92,46 @@ class TaskExecutor:
         try:
             # Load job functions
             self._update_progress(job_id, task_id, 0.1, "LOADING")
-            map_fn, _ = self._load_job_functions(job_id)
+            map_fn, _, combine_fn = self._load_job_functions(job_id)
             intermediate_files = []
 
             # Read input chunk
             input_path = os.path.join(self.input_dir, input_file)
             if not os.path.exists(input_path):
                 raise FileNotFoundError(f"Input file not found: {input_file}")
-            
-            self._update_progress(job_id, task_id, 0.2, "READING")    
+
+            self._update_progress(job_id, task_id, 0.2, "READING")
             with open(input_path, 'r') as f:
                 input_data = f.read()
 
             # Apply map function
-            self._update_progress(job_id, task_id, 0.4, "MAPPING")
+            self._update_progress(job_id, task_id, 0.35, "MAPPING")
             mapped_data = map_fn(input_data)
+
+            # Apply combiner if provided (local aggregation before writing)
+            if combine_fn:
+                self._update_progress(job_id, task_id, 0.5, "COMBINING")
+                logging.info(f"Applying combiner for job {job_id}, task {task_id}")
+
+                combined_data = []
+                for partition_idx, partition_pairs in enumerate(mapped_data):
+                    # Group by key within this partition
+                    grouped = {}
+                    for key, value in partition_pairs:
+                        if key not in grouped:
+                            grouped[key] = []
+                        grouped[key].append(value)
+
+                    # Apply combiner to each key group
+                    combined_partition = []
+                    for key, values in grouped.items():
+                        combined_result = combine_fn(key, values)
+                        combined_partition.append((key, combined_result))
+
+                    combined_data.append(combined_partition)
+
+                mapped_data = combined_data
+                logging.info(f"Combiner completed for job {job_id}, task {task_id}")
 
             # Write partitioned output
             total_partitions = len(mapped_data)
@@ -112,7 +140,7 @@ class TaskExecutor:
                     continue
                     
                 # Update progress for each partition
-                progress = 0.4 + (0.6 * (i + 1) / max(total_partitions, 1))
+                progress = 0.6 + (0.4 * (i + 1) / max(total_partitions, 1))
                 self._update_progress(job_id, task_id, progress, "WRITING")
                     
                 outfile = f"{job_id}_map_{task_id}_part_{partition}.pickle"
@@ -143,7 +171,7 @@ class TaskExecutor:
         try:
             # Load job functions
             self._update_progress(job_id, task_id, 0.1, "LOADING")
-            _, reduce_fn = self._load_job_functions(job_id)
+            _, reduce_fn, _ = self._load_job_functions(job_id)
             
             # Collect all intermediate files for this partition
             self._update_progress(job_id, task_id, 0.2, "COLLECTING")
