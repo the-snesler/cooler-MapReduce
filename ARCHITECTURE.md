@@ -239,8 +239,3 @@ Retry Count < Max?
 - Worker performance tracking and load balancing
 - Straggler detection and monitoring
 - Integration and unit tests
-
-⏳ Not Yet Implemented (Future Weeks):
-- Combiner support (Week 3)
-- Performance benchmarking (Week 4)
-- Example applications (Week 4)
