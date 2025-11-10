@@ -142,8 +142,10 @@ Generated Python files are in `src/`:
 
 ### Worker Task Execution
 `src/worker/task_executor.py` contains the `TaskExecutor` class:
-- `execute_map_task()`: Loads job functions, processes input, partitions output
-- `execute_reduce_task()`: Reads intermediate files, groups by key, writes output
+- `execute_map()`: Loads job functions, processes input, applies optional combiner, partitions output
+  - If `combine_fn` is present: groups keys locally and applies combiner before writing
+  - Progress states: STARTING → LOADING → READING → MAPPING → COMBINING (if combiner) → WRITING → COMPLETED
+- `execute_reduce()`: Reads intermediate files, groups by key, writes output
 - Progress tracking via `_update_progress()` and `get_task_progress()`
 - Resource monitoring via psutil for CPU/memory usage
 
@@ -154,33 +156,79 @@ Generated Python files are in `src/`:
 - Intermediate file validation prevents proceeding with corrupt data
 
 ## Job File Format
-User-provided Python files in `/shared/jobs` must define:
+User-provided Python files in `/shared/jobs` must define map and reduce functions. The optional combiner function enables local aggregation for better performance.
+
 ```python
-def map_fn(key, value):
+def map_fn(text):
     """
+    Map function that processes input text.
+
     Args:
-        key: Input key (e.g., filename)
-        value: Input value (e.g., line of text)
-    Yields:
-        (intermediate_key, intermediate_value) tuples
+        text: Input text string
+
+    Returns:
+        List of partitions, where each partition is a list of (key, value) tuples.
+        Example: [[('word1', 1), ('word2', 1), ...]]
     """
     # Example: word count
-    for word in value.split():
-        yield (word, 1)
+    words = text.split()
+    result = []
+    for word in words:
+        result.append((word.lower(), 1))
+    return [result]  # Single partition
 
 def reduce_fn(key, values):
     """
+    Reduce function that aggregates values for a key.
+
     Args:
         key: Intermediate key from map outputs
-        values: Iterator of values for this key
-    Yields:
-        (key, final_value) tuples
+        values: List of values for this key (from map or combine phase)
+
+    Returns:
+        Aggregated value (any type)
     """
     # Example: sum counts
-    yield (key, sum(values))
+    return sum(values)
+
+def combine_fn(key, values):
+    """
+    OPTIONAL: Combiner function for local aggregation before shuffle.
+
+    Significantly reduces intermediate data size by pre-aggregating locally.
+    Must be associative and commutative (same constraints as reduce_fn).
+
+    Args:
+        key: Intermediate key
+        values: List of values from local map outputs
+
+    Returns:
+        Combined value (same type as reduce_fn output)
+    """
+    # Example: local sum (safe because addition is associative/commutative)
+    return sum(values)
 ```
 
-Optional `combine_fn` (same signature as `reduce_fn`) can be added for local aggregation optimization.
+**Job File Storage**: Jobs are pickled and stored as `{job_id}.pickle` containing:
+```python
+{
+    'map_fn': <function>,
+    'reduce_fn': <function>,
+    'combine_fn': <function>  # Optional, can be None
+}
+```
+
+**Combiner Benefits**:
+- 10-100x reduction in intermediate data for aggregation workloads (e.g., WordCount)
+- Reduced shuffle I/O and network transfer
+- 20-50% faster execution for combiner-friendly operations
+- Completely optional - jobs without combiners work unchanged
+
+**Combiner Requirements**:
+- Must have same signature as `reduce_fn`
+- Must be associative: `combine(combine(a, b), c) == combine(a, combine(b, c))`
+- Must be commutative: `combine(a, b) == combine(b, a)`
+- User is responsible for ensuring these properties
 
 ## Important Implementation Notes
 
