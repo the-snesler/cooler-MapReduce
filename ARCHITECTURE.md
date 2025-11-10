@@ -222,20 +222,25 @@ Retry Count < Max?
 - `Dockerfile.worker` - Worker image
 - `requirements.txt` - Python dependencies
 
-## Current Status (Week 1)
+## Current Status (Week 1 & 2)
 
 ✅ Implemented:
 - gRPC service definitions
-- Coordinator server (job submission, status, listing)
-- Worker servers (heartbeat, task assignment handlers)
-- Client CLI (all commands)
-- Docker Compose setup
+- Coordinator server (job submission, status, listing, results)
+- Worker servers (heartbeat, task execution, progress reporting)
+- Client CLI (all commands, progress monitoring)
+- Docker Compose setup with resource limits
 - Shared storage structure
-- Integration tests
-
-⏳ Not Yet Implemented (Future Weeks):
-- Actual task execution logic
+- Task scheduling and distribution system
 - Map/reduce function loading and execution
 - Data partitioning and shuffling
-- Combiner support
-- Fault tolerance and retry logic
+- Job state machine (SUBMITTED → MAPPING → REDUCING → COMPLETED)
+- Task retry logic (up to 3 retries per task)
+- Worker performance tracking and load balancing
+- Straggler detection and monitoring
+- Integration and unit tests
+
+⏳ Not Yet Implemented (Future Weeks):
+- Combiner support (Week 3)
+- Performance benchmarking (Week 4)
+- Example applications (Week 4)

@@ -215,3 +215,5 @@ shared/jobs/*
 !shared/output/.gitkeep
 !shared/intermediate/.gitkeep
 !shared/jobs/.gitkeep
+
+testeroutputs.txt
