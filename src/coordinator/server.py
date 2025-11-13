@@ -252,12 +252,76 @@ class CoordinatorServicer(coordinator_pb2_grpc.CoordinatorServiceServicer):
         current_time = time.time()
         timeout_threshold = 30  # seconds
         
+        tasks_to_reassign_all = []  # Collect all tasks to reassign outside lock
+        workers_to_remove = []  # Collect workers to remove outside lock
+        
         with self.task_scheduler.lock:
             for worker_id, worker in list(self.workers.items()):
                 if current_time - worker['last_heartbeat'] > timeout_threshold:
-                    logger.warning(f"Worker {worker_id} timed out")
-                    # Handle worker failure (implementation needed)
+                    logger.warning(f"Worker {worker_id} timed out - reassigning tasks")
+                    
+                    # Find all tasks assigned to this failed worker
+                    tasks_to_reassign = []
+                    
+                    # Check tasks in scheduler's running_tasks
+                    for task_id, task in list(self.task_scheduler.running_tasks.items()):
+                        if task.assigned_worker == worker_id and task.status == "IN_PROGRESS":
+                            tasks_to_reassign.append(task)
+                    
+                    # Also check tasks in all jobs (map and reduce tasks)
+                    for job_id, job_state in self.jobs.items():
+                        # Check map tasks
+                        for task_id, task in job_state.map_tasks.items():
+                            if task.assigned_worker == worker_id and task.status == "IN_PROGRESS":
+                                if task not in tasks_to_reassign:
+                                    tasks_to_reassign.append(task)
+                        
+                        # Check reduce tasks
+                        for task_id, task in job_state.reduce_tasks.items():
+                            if task.assigned_worker == worker_id and task.status == "IN_PROGRESS":
+                                if task not in tasks_to_reassign:
+                                    tasks_to_reassign.append(task)
+                    
+                    # Prepare tasks for reassignment (modify state while holding lock)
+                    for task in tasks_to_reassign:
+                        logger.info(f"Reassigning task {task.task_id} from failed worker {worker_id}")
+                        
+                        # Reset task status to PENDING
+                        task.status = "PENDING"
+                        # Clear assigned_worker field
+                        task.assigned_worker = None
+                        # Increment retries (to give it higher priority)
+                        task.retries += 1
+                        
+                        # Remove from scheduler's running_tasks if present
+                        if task.task_id in self.task_scheduler.running_tasks:
+                            del self.task_scheduler.running_tasks[task.task_id]
+                        
+                        # Remove from scheduler's task_start_times if present
+                        if task.task_id in self.task_scheduler.task_start_times:
+                            del self.task_scheduler.task_start_times[task.task_id]
+                    
+                    # Remove worker from worker_tasks tracking
+                    if worker_id in self.task_scheduler.worker_tasks:
+                        del self.task_scheduler.worker_tasks[worker_id]
+                    
+                    # Collect tasks and worker for processing outside lock
+                    tasks_to_reassign_all.extend(tasks_to_reassign)
+                    workers_to_remove.append(worker_id)
+        
+        # Process reassignments outside lock to avoid deadlock (add_task acquires lock)
+        for task in tasks_to_reassign_all:
+            # Re-queue task for reassignment (this will acquire the lock internally)
+            self.task_scheduler.add_task(task)
+        
+        # Remove workers from registry (outside lock to avoid nested locking)
+        with self.task_scheduler.lock:
+            for worker_id in workers_to_remove:
+                if worker_id in self.workers:
                     del self.workers[worker_id]
+        
+        if tasks_to_reassign_all:
+            logger.info(f"Reassigned {len(tasks_to_reassign_all)} tasks from {len(workers_to_remove)} failed worker(s)")
     
     def Heartbeat(self, request, context):
         """Handle worker heartbeat."""

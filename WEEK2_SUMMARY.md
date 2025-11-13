@@ -47,6 +47,7 @@ Week 2 implements **Phase 2: Task Scheduling and Execution** of the MapReduce fr
 - **Health Monitoring**: Coordinator tracks worker status, available slots, and CPU usage
 - **Timeout Detection**: Workers removed after 30 seconds of no heartbeat
 - **Performance Scoring**: Workers scored based on CPU usage and task completion history
+- **Automatic Task Reassignment**: Tasks from failed workers automatically reassigned to available workers
 
 ### 8. Task Completion Reporting ✅
 - **Completion Reports**: Workers report task completion with intermediate file locations
@@ -126,7 +127,7 @@ python3 -m pytest tests/test_map_execution.py -v
 
 ### Test Coverage
 
-**`test_week2.py`** - Coordinator unit tests:
+**`test_week2.py`** - Coordinator unit tests (13 tests):
 - `test_task_creation`: Task object initialization
 - `test_task_state_transitions`: Task lifecycle (PENDING → IN_PROGRESS → COMPLETED/FAILED)
 - `test_job_state_progress`: Job phase transitions (MAP → REDUCE)
@@ -134,6 +135,7 @@ python3 -m pytest tests/test_map_execution.py -v
 - `test_worker_performance_tracking`: Worker metrics and heartbeat handling
 - `test_task_retry_mechanism`: Task retry on failures
 - `test_worker_failure_recovery`: Worker timeout handling
+- `test_worker_failure_automatic_reassignment`: Automatic task reassignment on worker failure
 - `test_straggler_detection`: Backup task creation for slow tasks
 - `test_intermediate_file_collection`: Shuffle data collection
 - `test_shuffle_location_tracking`: Reduce task shuffle input setup
@@ -163,17 +165,16 @@ python3 -m pytest tests/test_map_execution.py -v
 - Job state management and phase transitions
 - Worker heartbeat and health monitoring
 - Task retry mechanism (up to 3 retries)
+- Worker failure recovery with automatic task reassignment (fault tolerance)
 - Straggler detection and backup tasks
 - Progress tracking and reporting
 - Intermediate file collection and organization
-
-### ⚠️ Partially Implemented
-- **Worker Failure Recovery**: Workers are detected and removed on timeout, but tasks assigned to failed workers are not automatically reassigned
 
 ### ❌ Not Yet Implemented
 - **Combiner Support**: Local reduce operations before writing intermediate files (Week 3)
 - **Job Cancellation**: Cancel running jobs (RPC not implemented)
 - **Detailed Resource Monitoring**: CPU/memory/I/O metrics per job (RPCs not implemented)
+- **Benchmarks**
 
 ## Implementation Details
 
@@ -196,13 +197,18 @@ python3 -m pytest tests/test_map_execution.py -v
 ### Fault Tolerance
 - **Task Retries**: Failed tasks automatically retried (max 3 attempts)
 - **Worker Timeouts**: Workers removed after 30s of no heartbeat
+- **Automatic Task Reassignment**: Tasks from failed workers automatically reset to PENDING and re-queued for reassignment
+  - Finds all tasks assigned to failed worker (from scheduler and job states)
+  - Resets task status to PENDING and clears assigned_worker
+  - Increments retries for higher priority
+  - Removes tasks from scheduler tracking (running_tasks, task_start_times)
+  - Re-queues tasks for reassignment to available workers
 - **Straggler Handling**: Backup tasks created for slow-running tasks
-- **Missing**: Automatic task reassignment on worker failure (TODO)
 
 ## Files Modified/Created
 
 ### Core Implementation
-- `src/coordinator/server.py`: Task scheduling, job state, split calculation
+- `src/coordinator/server.py`: Task scheduling, job state, split calculation, worker failure recovery
 - `src/worker/server.py`: Task execution, completion reporting, heartbeat
 - `src/worker/task_executor.py`: Map/reduce execution, file I/O, partitioning
 - `src/client/client.py`: Job submission, status monitoring
@@ -213,7 +219,7 @@ python3 -m pytest tests/test_map_execution.py -v
 - `proto/coordinator.proto`: `ReportTaskCompletion` and `Heartbeat` RPCs
 
 ### Tests
-- `tests/test_week2.py`: 12 unit tests for coordinator logic
+- `tests/test_week2.py`: 13 unit tests for coordinator logic (including worker failure recovery)
 - `tests/test_shuffle_data_fetch.py`: 5 integration tests including input splitting
 - `tests/test_map_execution.py`: Map execution verification
 
@@ -233,13 +239,6 @@ python3 -m grpc_tools.protoc \
 
 ## TODO - Remaining Work
 
-### Fault Tolerance
-- [ ] **Worker Failure Recovery**: Implement automatic task reassignment when workers fail
-  - Find tasks assigned to failed worker
-  - Reset task status to PENDING
-  - Re-queue tasks for reassignment
-  - Location: `src/coordinator/server.py::_check_worker_timeouts()`
-
 ### Client Commands
 - [ ] **Job Cancellation**: Implement CancelJob RPC
   - Add `CancelJob` RPC to `coordinator.proto`
@@ -252,7 +251,7 @@ python3 -m grpc_tools.protoc \
   - Group map output by key within each partition
   - Apply combiner before writing intermediate files
 
-### Performance Metrics
+### Performance Metrics (!)
 - [ ] **Performance Metrics**: Add detailed resource monitoring RPCs
   - `GetResourceUsage` RPC for per-job metrics
   - `ListActiveTasks` RPC for task-level details

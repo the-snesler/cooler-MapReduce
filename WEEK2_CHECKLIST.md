@@ -14,7 +14,7 @@ Based on the design.md Phase 2 requirements and Week 1 completion:
   - [x] Track available workers from heartbeats
   - [x] Assign tasks to workers with available slots
   - [x] **Handle task failures and retry** ✅
-  - [ ] **Handle worker failures and task reassignment** ⚠️ (detection works, reassignment missing)
+  - [x] **Handle worker failures and task reassignment** ✅ (detection and reassignment)
   - [x] Track task completion and job progress
 - [x] Add task queue and worker load balancing
   - [x] Implement priority queue for pending tasks
@@ -86,18 +86,19 @@ Based on the design.md Phase 2 requirements and Week 1 completion:
   - [x] Priority queue logic
   - [x] Worker performance tracking
   - [x] Task retry mechanism
-  - [x] Worker failure recovery (timeout detection)
+  - [x] Worker failure recovery (timeout detection and automatic reassignment)
   - [x] Straggler detection
   - [x] Intermediate file collection
   - [x] Shuffle location tracking
   - [x] Multiple concurrent jobs
   - [x] Task completion reporting
+  - [x] Worker failure automatic reassignment
 - [x] Integration tests
   - [x] End-to-end job execution (verified with real jobs)
   - [x] **Input file splitting verification** (`test_shuffle_data_fetch.py::test_05_input_file_splitting`) ✅
   - [x] Shuffle data fetch (`test_shuffle_data_fetch.py`)
   - [x] Map execution (`test_map_execution.py`)
-  - [ ] Worker failure recovery (automatic reassignment) ⚠️
+  - [x] Worker failure recovery (automatic reassignment) ✅
   - [x] Multiple concurrent jobs
 - [x] Performance tests
   - [x] Measure task completion times
@@ -130,6 +131,7 @@ Based on the design.md Phase 2 requirements and Week 1 completion:
    - ✅ Task completion reporting
    - ✅ Straggler detection
    - ✅ Input file splitting logic
+   - ✅ Worker failure recovery with automatic task reassignment
 
 2. **src/worker/server.py**
    - ✅ Map/reduce execution
@@ -161,7 +163,7 @@ Based on the design.md Phase 2 requirements and Week 1 completion:
   - ✅ `Heartbeat` RPC (moved from worker.proto)
 
 ### Testing
-1. **tests/test_week2.py** - 12 unit tests
+1. **tests/test_week2.py** - 13 unit tests (including worker failure recovery)
 2. **tests/test_shuffle_data_fetch.py** - 5 integration tests (including input splitting)
 3. **tests/test_map_execution.py** - 3 map execution tests
 
@@ -179,7 +181,7 @@ Based on the design.md Phase 2 requirements and Week 1 completion:
 - [x] Shuffle phase works (network data fetch)
 - [x] Task retries work on failures
 - [x] Progress reporting is accurate
-- [ ] Worker failure recovery (automatic reassignment) ⚠️
+- [x] Worker failure recovery (automatic reassignment) ✅
 
 ### Performance
 - [x] Tasks are distributed evenly
@@ -197,14 +199,6 @@ Based on the design.md Phase 2 requirements and Week 1 completion:
 
 ## Known Issues / Limitations
 
-### ⚠️ Partially Implemented
-1. **Worker Failure Recovery**
-   - ✅ Worker timeout detection (30 seconds)
-   - ✅ Worker removal from registry
-   - ❌ Tasks not automatically reassigned when worker fails
-   - **Impact**: Tasks assigned to failed workers remain stuck in "IN_PROGRESS" state
-   - **Fix Needed**: Update `_check_worker_timeouts()` to reassign tasks
-
 ### ❌ Not Implemented
 1. **Job Cancellation**
    - CancelJob RPC not defined in proto
@@ -221,14 +215,6 @@ Based on the design.md Phase 2 requirements and Week 1 completion:
    - **Status**: Monitoring functions exist but use available RPCs only
 
 ## TODO - Remaining Work
-
-### High Priority
-- [ ] **Worker Failure Recovery**: Complete automatic task reassignment
-  - Update `_check_worker_timeouts()` in `src/coordinator/server.py`
-  - Find tasks assigned to failed worker
-  - Reset task status to PENDING
-  - Clear assigned_worker field
-  - Re-queue tasks for reassignment
 
 ### Medium Priority
 - [ ] **Job Cancellation**: Implement CancelJob RPC

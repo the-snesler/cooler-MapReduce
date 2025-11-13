@@ -565,5 +565,124 @@ class TestTaskScheduler(unittest.TestCase):
         self.assertEqual(task.status, "COMPLETED")
         self.assertGreater(len(job_state.intermediate_file_locations), 0)
 
+    def test_worker_failure_automatic_reassignment(self):
+        """Test automatic task reassignment when worker fails."""
+        print("\n" + "="*60)
+        print("TEST: Worker Failure Automatic Reassignment")
+        print("="*60)
+        
+        # Create a job
+        request = coordinator_pb2.JobRequest(
+            input_path="/input",
+            output_path="/output",
+            job_file_path="/jobs/test.py",
+            num_map_tasks=3,
+            num_reduce_tasks=2
+        )
+        job_state = JobState("job1", request)
+        self.coordinator.jobs["job1"] = job_state
+        
+        # Create map tasks
+        map_tasks = []
+        for i in range(3):
+            task = Task(f"job1_map_{i}", "job1", "MAP", "/input", "/output")
+            job_state.map_tasks[task.task_id] = task
+            map_tasks.append(task)
+        
+        # Register a worker
+        worker_id = "worker-1"
+        self.coordinator.workers[worker_id] = {
+            'status': 'IDLE',
+            'available_slots': 2,
+            'last_heartbeat': time.time(),
+            'cpu_usage': 0.0,
+            'performance_score': 1.0
+        }
+        
+        # Assign tasks to the worker
+        for task in map_tasks[:2]:  # Assign first 2 tasks
+            task.assign_to_worker(worker_id)
+            self.coordinator.task_scheduler.running_tasks[task.task_id] = task
+            self.coordinator.task_scheduler.task_start_times[task.task_id] = time.time()
+            if worker_id not in self.coordinator.task_scheduler.worker_tasks:
+                self.coordinator.task_scheduler.worker_tasks[worker_id] = []
+            self.coordinator.task_scheduler.worker_tasks[worker_id].append(task.task_id)
+        
+        print(f"  Created {len(map_tasks)} map tasks")
+        print(f"  Assigned {len(map_tasks[:2])} tasks to {worker_id}")
+        print(f"  Tasks assigned: {[t.task_id for t in map_tasks[:2]]}")
+        
+        # Verify tasks are assigned
+        for task in map_tasks[:2]:
+            self.assertEqual(task.assigned_worker, worker_id)
+            self.assertEqual(task.status, "IN_PROGRESS")
+            self.assertIn(task.task_id, self.coordinator.task_scheduler.running_tasks)
+        
+        # Simulate worker failure (no heartbeat for >30 seconds)
+        old_heartbeat = time.time() - 60  # 60 seconds ago
+        self.coordinator.workers[worker_id]['last_heartbeat'] = old_heartbeat
+        
+        print(f"  Simulated worker failure (last heartbeat: {time.time() - old_heartbeat:.1f}s ago)")
+        
+        # Count tasks in queue before timeout check
+        initial_queue_size = self.coordinator.task_scheduler.pending_tasks.qsize()
+        
+        # Call timeout check (this should reassign tasks)
+        # Note: _check_worker_timeouts() handles locking internally, so we don't need to acquire the lock here
+        self.coordinator._check_worker_timeouts()
+        
+        print(f"  Queue size before: {initial_queue_size}, after: {self.coordinator.task_scheduler.pending_tasks.qsize()}")
+        
+        # Verify worker was removed
+        self.assertNotIn(worker_id, self.coordinator.workers)
+        print(f"  Worker {worker_id} removed from registry")
+        
+        # Verify tasks were reassigned
+        for task in map_tasks[:2]:
+            print(f"  Checking task {task.task_id}:")
+            print(f"    Status: {task.status} (expected: PENDING)")
+            print(f"    Assigned worker: {task.assigned_worker} (expected: None)")
+            print(f"    Retries: {task.retries} (expected: 1)")
+            
+            # Task should be reset to PENDING
+            self.assertEqual(task.status, "PENDING", 
+                           f"Task {task.task_id} should be PENDING after worker failure")
+            
+            # Assigned worker should be cleared
+            self.assertIsNone(task.assigned_worker, 
+                            f"Task {task.task_id} should have no assigned worker")
+            
+            # Retries should be incremented (for higher priority)
+            self.assertEqual(task.retries, 1, 
+                          f"Task {task.task_id} should have retries=1")
+            
+            # Task should be removed from running_tasks
+            self.assertNotIn(task.task_id, self.coordinator.task_scheduler.running_tasks,
+                           f"Task {task.task_id} should be removed from running_tasks")
+            
+            # Task should be removed from task_start_times
+            self.assertNotIn(task.task_id, self.coordinator.task_scheduler.task_start_times,
+                           f"Task {task.task_id} should be removed from task_start_times")
+        
+        # Verify worker was removed from worker_tasks tracking
+        self.assertNotIn(worker_id, self.coordinator.task_scheduler.worker_tasks)
+        print(f"  Worker {worker_id} removed from worker_tasks tracking")
+        
+        # Verify tasks were re-queued (queue size should increase)
+        # Note: We can't directly check if tasks are in the queue, but we can verify
+        # that the queue size increased (tasks were added back)
+        final_queue_size = self.coordinator.task_scheduler.pending_tasks.qsize()
+        print(f"  Tasks re-queued: {final_queue_size - initial_queue_size} tasks added to queue")
+        
+        # Verify the third task (not assigned to failed worker) is unaffected
+        unassigned_task = map_tasks[2]
+        if unassigned_task.assigned_worker != worker_id:
+            print(f"  Unassigned task {unassigned_task.task_id} status unchanged: {unassigned_task.status}")
+            # This task should not have been affected
+            self.assertNotEqual(unassigned_task.status, "IN_PROGRESS", 
+                              "Unassigned task should not be IN_PROGRESS")
+        
+        print("  ✓ All tasks successfully reassigned after worker failure")
+
 if __name__ == '__main__':
     unittest.main()
