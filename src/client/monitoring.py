@@ -1,10 +1,16 @@
 """Client methods for detailed job monitoring and control."""
 
+import sys
 import time
 import os
 import psutil
 from typing import Dict, List, Optional
 from datetime import datetime
+
+# Add src directory to path for imports
+sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..'))
+
+import coordinator_pb2
 
 def format_duration(seconds: float) -> str:
     """Format duration in seconds to human readable string."""

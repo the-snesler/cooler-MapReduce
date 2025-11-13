@@ -56,23 +56,38 @@ class JobState:
         self.intermediate_validated = False
     
     def validate_intermediate_files(self):
-        """Validate all intermediate files exist and are non-empty."""
-        if not self.intermediate_files:
-            return False
-            
-        try:
-            for file_path in self.intermediate_files:
-                if not os.path.exists(file_path):
-                    logger.error(f"Missing intermediate file: {file_path}")
-                    return False
-                if os.path.getsize(file_path) == 0:
-                    logger.error(f"Empty intermediate file: {file_path}")
-                    return False
-            self.intermediate_validated = True
-            return True
-        except Exception as e:
-            logger.error(f"Error validating intermediate files: {str(e)}")
-            return False
+        """Validate that intermediate files have been collected for all partitions."""
+        # Check if we have intermediate_file_locations (new approach)
+        if hasattr(self, 'intermediate_file_locations') and self.intermediate_file_locations:
+            # Check that we have at least some files collected
+            total_files = sum(len(files) for files in self.intermediate_file_locations.values())
+            if total_files > 0:
+                logger.info(f"Validated intermediate files: {total_files} files across {len(self.intermediate_file_locations)} partitions")
+                self.intermediate_validated = True
+                return True
+            else:
+                logger.error("No intermediate files collected in intermediate_file_locations")
+                return False
+        
+        # Fallback: check old intermediate_files list (for backward compatibility)
+        if hasattr(self, 'intermediate_files') and self.intermediate_files:
+            try:
+                for file_path in self.intermediate_files:
+                    if not os.path.exists(file_path):
+                        logger.error(f"Missing intermediate file: {file_path}")
+                        return False
+                    if os.path.getsize(file_path) == 0:
+                        logger.error(f"Empty intermediate file: {file_path}")
+                        return False
+                self.intermediate_validated = True
+                return True
+            except Exception as e:
+                logger.error(f"Error validating intermediate files: {str(e)}")
+                return False
+        
+        # No intermediate files found at all
+        logger.error("No intermediate files found (neither intermediate_file_locations nor intermediate_files)")
+        return False
     
     def transition_to_map_phase(self):
         """Transition job to mapping phase."""
@@ -135,6 +150,11 @@ class JobState:
                 if completed == self.num_map_tasks:
                     self.status = "MAPPING"  # Ensure correct state for transition
                     self.transition_to_reduce_phase()
+                    # Add reduce tasks to scheduler after creating them
+                    coordinator = getattr(self, '_coordinator', None)
+                    if coordinator:
+                        for reduce_task in self.reduce_tasks.values():
+                            coordinator.task_scheduler.add_task(reduce_task)
                     
             elif self.phase == "REDUCE":
                 completed = sum(1 for t in self.reduce_tasks.values() 
@@ -156,6 +176,9 @@ class JobState:
             
             # Get the input locations for this specific partition (i.e., the shuffle input)
             shuffle_input = self.intermediate_file_locations.get(i, [])
+            
+            if not shuffle_input:
+                logger.warning(f"No intermediate files found for reduce task partition {i}")
 
             # Create the Task object
             reduce_task = Task(
@@ -173,8 +196,9 @@ class JobState:
             
             self.reduce_tasks[task_id] = reduce_task
             
-            # Optionally, add to the scheduler immediately
-            # self.coordinator_servicer.task_scheduler.add_task(reduce_task)
+            # Add to the scheduler immediately
+            # Get coordinator servicer from the job state (we'll need to pass it)
+            # For now, tasks will be added when transition happens
 
 
 def split_input_file(file_path, num_splits):
@@ -231,6 +255,28 @@ class CoordinatorServicer(coordinator_pb2_grpc.CoordinatorServiceServicer):
                     # Handle worker failure (implementation needed)
                     del self.workers[worker_id]
     
+    def Heartbeat(self, request, context):
+        """Handle worker heartbeat."""
+        try:
+            worker_id = request.worker_id
+            status = request.status
+            available_slots = request.available_slots
+            cpu_usage = request.cpu_usage if hasattr(request, 'cpu_usage') else 0.0
+            
+            # Get worker address from context (if available) or use a default
+            # In Docker, we'll need to get this from the worker's report
+            worker_address = None
+            
+            self.handle_worker_heartbeat(worker_id, status, available_slots, cpu_usage)
+            
+            # Store worker address if we have it (from task completion reports)
+            # For now, we'll get it when workers report task completion
+            
+            return coordinator_pb2.HeartbeatResponse(acknowledged=True)
+        except Exception as e:
+            logger.error(f"Error handling heartbeat: {e}")
+            return coordinator_pb2.HeartbeatResponse(acknowledged=False)
+    
     def handle_worker_heartbeat(self, worker_id, status, available_slots, cpu_usage):
         """Handle worker heartbeat and update worker state."""
         with self.task_scheduler.lock:
@@ -241,7 +287,8 @@ class CoordinatorServicer(coordinator_pb2_grpc.CoordinatorServiceServicer):
                     'last_heartbeat': time.time(),
                     'cpu_usage': cpu_usage,
                     'task_history': [],  # List of recently completed tasks and their durations
-                    'performance_score': 1.0  # Higher is better
+                    'performance_score': 1.0,  # Higher is better
+                    'address': None  # Will be set when worker reports task completion
                 }
             else:
                 worker = self.workers[worker_id]
@@ -269,21 +316,68 @@ class CoordinatorServicer(coordinator_pb2_grpc.CoordinatorServiceServicer):
         logger.info(f"  Map tasks: {request.num_map_tasks}")
         logger.info(f"  Reduce tasks: {request.num_reduce_tasks}")
         
+        # Normalize paths - handle Docker volume mounts
+        # If path starts with /shared/, use it as-is (Docker mount point)
+        # If path starts with shared/, convert to /shared/ (Docker mount point)
+        # Otherwise, resolve as absolute path
+        def normalize_path_for_docker(path):
+            path = os.path.normpath(path)
+            if path.startswith('/shared/'):
+                return path
+            if path.startswith('shared/'):
+                return '/' + path
+            # For absolute paths, use as-is
+            if os.path.isabs(path):
+                return path
+            # For relative paths, resolve relative to current directory
+            return os.path.abspath(path)
+        
         # Validate input path
-        if not os.path.exists(request.input_path):
+        input_path = normalize_path_for_docker(request.input_path)
+        if not os.path.exists(input_path):
+            logger.error(f"Input path does not exist: {input_path} (original: {request.input_path})")
+            logger.error(f"Current working directory: {os.getcwd()}")
+            # Try alternative path if original was relative
+            if not os.path.isabs(request.input_path) and not request.input_path.startswith('shared/'):
+                alt_path = normalize_path_for_docker('shared/' + request.input_path.lstrip('/'))
+                if os.path.exists(alt_path):
+                    logger.info(f"Found input at alternative path: {alt_path}")
+                    input_path = alt_path
+                else:
+                    context.set_code(grpc.StatusCode.INVALID_ARGUMENT)
+                    context.set_details(f"Input path does not exist: {input_path}")
+                    return coordinator_pb2.JobResponse()
+            else:
+                context.set_code(grpc.StatusCode.INVALID_ARGUMENT)
+                context.set_details(f"Input path does not exist: {input_path}")
+                return coordinator_pb2.JobResponse()
+        
+        # Store normalized paths for later use
+        normalized_input_path = input_path
+        normalized_output_path = normalize_path_for_docker(request.output_path)
+        normalized_job_file_path = normalize_path_for_docker(request.job_file_path)
+        
+        # Validate job file path
+        if not os.path.exists(normalized_job_file_path):
+            logger.error(f"Job file path does not exist: {normalized_job_file_path}")
             context.set_code(grpc.StatusCode.INVALID_ARGUMENT)
-            context.set_details(f"Input path does not exist: {request.input_path}")
+            context.set_details(f"Job file path does not exist: {normalized_job_file_path}")
             return coordinator_pb2.JobResponse()
         
-        # Create job state
+        # Create job state (JobState will use request attributes, but we'll use normalized paths)
         job_state = JobState(job_id, request)
+        # Override with normalized paths
+        job_state.input_path = normalized_input_path
+        job_state.output_path = normalized_output_path
+        job_state.job_file_path = normalized_job_file_path
+        job_state._coordinator = self  # Store reference for task scheduling
         self.jobs[job_id] = job_state
         
         # Split input file for map tasks
-        splits = split_input_file(request.input_path, request.num_map_tasks)
+        splits = split_input_file(normalized_input_path, request.num_map_tasks)
         if splits is None:
             job_state.status = "FAILED"
-            job_state.error_message = f"Failed to split input file: {request.input_path}"
+            job_state.error_message = f"Failed to split input file: {normalized_input_path}"
             return coordinator_pb2.JobResponse(
                 job_id=job_id,
                 status="FAILED"
@@ -296,8 +390,8 @@ class CoordinatorServicer(coordinator_pb2_grpc.CoordinatorServiceServicer):
                 task_id=task_id,
                 job_id=job_id,
                 task_type="MAP",
-                input_path=request.input_path,
-                output_path=os.path.join(request.output_path, f"intermediate_{i}"),
+                input_path=normalized_input_path,
+                output_path=os.path.join(normalized_output_path, f"intermediate_{i}"),
                 num_reducers=request.num_reduce_tasks
             )
             job_state.map_tasks[task_id] = task
@@ -325,6 +419,7 @@ class CoordinatorServicer(coordinator_pb2_grpc.CoordinatorServiceServicer):
         return coordinator_pb2.JobStatusResponse(
             job_id=job_id,
             status=job_state.status,
+            phase=job_state.phase,
             total_map_tasks=job_state.num_map_tasks,
             completed_map_tasks=job_state.completed_map_tasks,
             total_reduce_tasks=job_state.num_reduce_tasks,
@@ -363,6 +458,79 @@ class CoordinatorServicer(coordinator_pb2_grpc.CoordinatorServiceServicer):
             status=job_state.status,
             output_files=output_files
         )
+    
+    def ReportTaskCompletion(self, request, context):
+        """Handle task completion report from worker."""
+        try:
+            job_id = request.job_id
+            task_id = request.task_id
+            
+            if job_id not in self.jobs:
+                logger.warning(f"Received completion for unknown job: {job_id}")
+                return coordinator_pb2.TaskCompletionResponse(acknowledged=False)
+            
+            job_state = self.jobs[job_id]
+            
+            if task_id not in job_state.map_tasks and task_id not in job_state.reduce_tasks:
+                logger.warning(f"Received completion for unknown task: {task_id}")
+                return coordinator_pb2.TaskCompletionResponse(acknowledged=False)
+            
+            # Update task status
+            if request.task_type == "MAP":
+                if task_id in job_state.map_tasks:
+                    task = job_state.map_tasks[task_id]
+                    if request.success:
+                        task.complete()
+                        
+                        # Collect shuffle data: organize intermediate files by partition
+                        if not hasattr(job_state, 'intermediate_file_locations'):
+                            job_state.intermediate_file_locations = {i: [] for i in range(job_state.num_reduce_tasks)}
+                        
+                        # Parse intermediate file names to extract partition IDs
+                        # Format: job_id_map_task_id_part_partition_id.pickle
+                        for file_name in request.intermediate_files:
+                            try:
+                                # Extract partition ID from filename
+                                # Format: {job_id}_map_{task_id}_part_{partition_id}.pickle
+                                parts = file_name.split('_part_')
+                                if len(parts) == 2:
+                                    partition_str = parts[1].split('.')[0]
+                                    partition_id = int(partition_str)
+                                    
+                                    # Add to shuffle locations for this partition
+                                    location = (request.worker_address, file_name)
+                                    job_state.intermediate_file_locations[partition_id].append(location)
+                                    logger.info(f"Added shuffle location: partition {partition_id}, file {file_name} from {request.worker_address}")
+                            except (ValueError, IndexError) as e:
+                                logger.warning(f"Failed to parse partition ID from filename {file_name}: {e}")
+                        
+                        logger.info(f"Map task {task_id} completed. Collected {len(request.intermediate_files)} intermediate files.")
+                        
+                        # Store worker address for shuffle operations
+                        if request.worker_id in self.workers:
+                            self.workers[request.worker_id]['address'] = request.worker_address
+                    else:
+                        task.fail(request.error_message)
+                        logger.error(f"Map task {task_id} failed: {request.error_message}")
+            
+            elif request.task_type == "REDUCE":
+                if task_id in job_state.reduce_tasks:
+                    task = job_state.reduce_tasks[task_id]
+                    if request.success:
+                        task.complete()
+                        logger.info(f"Reduce task {task_id} completed.")
+                    else:
+                        task.fail(request.error_message)
+                        logger.error(f"Reduce task {task_id} failed: {request.error_message}")
+            
+            # Update job progress and check for phase transitions
+            job_state.update_progress()
+            
+            return coordinator_pb2.TaskCompletionResponse(acknowledged=True)
+            
+        except Exception as e:
+            logger.error(f"Error handling task completion report: {e}")
+            return coordinator_pb2.TaskCompletionResponse(acknowledged=False)
 
     # add new classes
 class Task:
@@ -545,6 +713,9 @@ class TaskScheduler:
             self.worker_tasks[worker_id] = []
         self.worker_tasks[worker_id].append(task.task_id)
         
+        # Get job state for additional info
+        job_state = self.coordinator_servicer.jobs[task.job_id]
+        
         # Create the task assignment
         assignment = worker_pb2.TaskAssignment(
             task_id=task.task_id,
@@ -552,10 +723,19 @@ class TaskScheduler:
             job_id=task.job_id,
             input_path=task.input_path,
             output_path=task.output_path,
-            job_file_path=self.coordinator_servicer.jobs[task.job_id].job_file_path,
+            job_file_path=job_state.job_file_path,
             partition_id=task.partition_id if task.partition_id is not None else 0,
-            num_reduce_tasks=task.num_reducers if task.num_reducers is not None else 1
+            num_reduce_tasks=task.num_reducers if task.num_reducers is not None else job_state.num_reduce_tasks
         )
+        
+        # For reduce tasks, add shuffle locations
+        if task.task_type == "REDUCE" and hasattr(task, 'shuffle_input_locations'):
+            for worker_addr, file_name in task.shuffle_input_locations:
+                location = worker_pb2.Location(
+                    worker_address=worker_addr,
+                    file_name=file_name
+                )
+                assignment.shuffle_locations.append(location)
         
         # Send assignment to worker (non-blocking)
         threading.Thread(
@@ -567,7 +747,33 @@ class TaskScheduler:
     def _send_assignment_to_worker(self, worker_id, assignment, task):
         """Send task assignment to worker via gRPC."""
         try:
-            worker_addr = self.coordinator_servicer.workers[worker_id]['address']
+            # Get worker address, with fallback construction
+            worker_info = self.coordinator_servicer.workers.get(worker_id)
+            if worker_info is None:
+                raise ValueError(f"Worker {worker_id} not found in workers registry")
+            
+            worker_addr = worker_info.get('address')
+            
+            # If address not set yet, try to construct it from worker_id
+            # Docker pattern: worker-1 -> worker1:50052, worker-2 -> worker2:50053, etc.
+            if worker_addr is None:
+                # Try to extract worker number from worker_id (e.g., "worker-1" -> 1)
+                try:
+                    worker_num = int(worker_id.split('-')[-1])
+                    # Port mapping: worker-1 -> 50052, worker-2 -> 50053, etc.
+                    port = 50051 + worker_num
+                    # In Docker, container names are lowercase without dashes
+                    container_name = worker_id.replace('-', '').lower()
+                    worker_addr = f"{container_name}:{port}"
+                    logger.info(f"Constructed worker address for {worker_id}: {worker_addr}")
+                except (ValueError, IndexError):
+                    # Fallback: try to use worker_id directly as hostname
+                    worker_addr = f"{worker_id}:50052"
+                    logger.warning(f"Could not parse worker_id {worker_id}, using default address: {worker_addr}")
+            
+            if worker_addr is None:
+                raise ValueError(f"Worker {worker_id} has no address and could not be constructed")
+            
             with grpc.insecure_channel(worker_addr) as channel:
                 stub = worker_pb2_grpc.WorkerServiceStub(channel)
                 response = stub.AssignTask(assignment)
@@ -623,6 +829,10 @@ class TaskScheduler:
 
 def serve(port=50051):
     """Start the coordinator gRPC server."""
+    # Log working directory for debugging
+    logger.info(f"Coordinator starting in working directory: {os.getcwd()}")
+    logger.info(f"Coordinator script location: {__file__}")
+    
     server = grpc.server(futures.ThreadPoolExecutor(max_workers=10))
     coordinator_pb2_grpc.add_CoordinatorServiceServicer_to_server(
         CoordinatorServicer(), server
