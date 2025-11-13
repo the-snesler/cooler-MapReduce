@@ -207,14 +207,20 @@ class WorkerServicer(worker_pb2_grpc.WorkerServiceServicer):
                 task_id_parts = request.task_id.split('_')
                 map_index = int(task_id_parts[-1]) if task_id_parts else 0
                 
-                # Execute map task - need to get input split info from coordinator
-                # For now, read the full input file (split handling can be improved)
+                # Extract split boundaries from task assignment
+                # Use 0 as default for start_pos, None for end_pos (means read to end)
+                start_pos = request.start_pos if hasattr(request, 'start_pos') else 0
+                end_pos = request.end_pos if (hasattr(request, 'end_pos') and request.end_pos > 0) else None
+                
+                # Execute map task with split boundaries
                 intermediate_files = self.worker.task_executor.execute_map(
                     request.job_id,
                     map_index,
                     request.input_path,  # Full path
                     request.job_file_path,
-                    request.num_reduce_tasks
+                    request.num_reduce_tasks,
+                    start_pos=start_pos,
+                    end_pos=end_pos
                 )
                 
                 # Update task with success status and output

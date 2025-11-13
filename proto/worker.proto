@@ -38,6 +38,8 @@ message TaskAssignment {
   int32 partition_id = 7;       // For reduce tasks
   int32 num_reduce_tasks = 8;   // Total number of reduce tasks (for partitioning)
   repeated Location shuffle_locations = 9; // list of intermediate file locations for the shuffle phase for reduce tasks
+  int64 start_pos = 10;         // Start byte position in input file (for map tasks)
+  int64 end_pos = 11;           // End byte position in input file (for map tasks)
 }
 
 // Acknowledgment of task assignment

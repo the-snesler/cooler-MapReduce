@@ -214,19 +214,23 @@ def split_input_file(file_path, num_splits):
             split_size = (file_size + num_splits - 1) // num_splits
             
             splits = []
+            current_pos = 0  # Track actual position after each split
+            
             for i in range(num_splits):
-                start_pos = i * split_size
+                start_pos = current_pos
                 
                 if i == num_splits - 1:
                     # Last split goes to end of file
                     end_pos = file_size
                 else:
-                    # Find next newline after split_size
-                    f.seek(min(start_pos + split_size, file_size))
-                    f.readline()  # Read to next newline
+                    # Find next newline after split_size from start
+                    target_pos = min(start_pos + split_size, file_size)
+                    f.seek(target_pos)
+                    f.readline()  # Read to next newline (ensures we don't split in middle of line)
                     end_pos = f.tell()
                 
                 splits.append((start_pos, end_pos))
+                current_pos = end_pos  # Next split starts where this one ended
             
             return splits
     except Exception as e:
@@ -392,7 +396,9 @@ class CoordinatorServicer(coordinator_pb2_grpc.CoordinatorServiceServicer):
                 task_type="MAP",
                 input_path=normalized_input_path,
                 output_path=os.path.join(normalized_output_path, f"intermediate_{i}"),
-                num_reducers=request.num_reduce_tasks
+                num_reducers=request.num_reduce_tasks,
+                start_pos=start_pos,
+                end_pos=end_pos
             )
             job_state.map_tasks[task_id] = task
             self.task_scheduler.add_task(task)
@@ -535,7 +541,7 @@ class CoordinatorServicer(coordinator_pb2_grpc.CoordinatorServiceServicer):
     # add new classes
 class Task:
     """Represents a map or reduce task in the system."""
-    def __init__(self, task_id, job_id, task_type, input_path, output_path, partition_id=None, num_reducers=None):
+    def __init__(self, task_id, job_id, task_type, input_path, output_path, partition_id=None, num_reducers=None, start_pos=None, end_pos=None):
         self.task_id = task_id
         self.job_id = job_id
         self.task_type = task_type  # "MAP" or "REDUCE"
@@ -543,6 +549,8 @@ class Task:
         self.output_path = output_path
         self.partition_id = partition_id
         self.num_reducers = num_reducers  # Needed for map tasks to partition output
+        self.start_pos = start_pos  # Start position in input file (for map tasks)
+        self.end_pos = end_pos  # End position in input file (for map tasks)
         self.status = "PENDING"  # "PENDING", "IN_PROGRESS", "COMPLETED", "FAILED"
         self.assigned_worker = None
         self.start_time = None
@@ -725,7 +733,9 @@ class TaskScheduler:
             output_path=task.output_path,
             job_file_path=job_state.job_file_path,
             partition_id=task.partition_id if task.partition_id is not None else 0,
-            num_reduce_tasks=task.num_reducers if task.num_reducers is not None else job_state.num_reduce_tasks
+            num_reduce_tasks=task.num_reducers if task.num_reducers is not None else job_state.num_reduce_tasks,
+            start_pos=task.start_pos if task.start_pos is not None else 0,
+            end_pos=task.end_pos if task.end_pos is not None else 0  # 0 means read to end (will be converted to None in worker)
         )
         
         # For reduce tasks, add shuffle locations
@@ -806,7 +816,7 @@ class TaskScheduler:
         if task.status != "IN_PROGRESS":
             return
             
-        # Create a backup task
+        # Create a backup task (preserve split boundaries for map tasks)
         backup_task = Task(
             task_id=f"{task.task_id}_backup",
             job_id=task.job_id,
@@ -814,7 +824,9 @@ class TaskScheduler:
             input_path=task.input_path,
             output_path=f"{task.output_path}_backup",
             partition_id=task.partition_id,
-            num_reducers=task.num_reducers
+            num_reducers=task.num_reducers,
+            start_pos=task.start_pos,
+            end_pos=task.end_pos
         )
         
         # Add to queue with high priority
