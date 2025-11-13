@@ -105,3 +105,25 @@ python -m pytest tests/test_shuffle_data_fetch.py -v # shuffle phase updated tes
 2. Add performance benchmarking
 3. Complete documentation updates
 4. Add support for combiners (optimization)
+
+
+##For Heartbeat functionality
+### We have implemented
+#### Heartbeat functionality:
+- workers send heartbeats every 5 seconds
+- coordinator tracks worker health
+- timeout detection works (30 second threshold)
+- worker removal works
+#### Dead worker handling (partially)
+- worker timeout is detected
+- worker is removed from registry
+
+### What we need to implemented - TODO
+If we want to imitate the fault tolerance in the MapReduce paper, we still need to do:
+#### Dead worker handling (->complete)
+- tasks are not reassigned
+- tasks remain stuck in "IN_PROGRESS"
+- no automatic recovery
+
+## For User Monitoring - TODO
+- add a functionality to cancel a job
