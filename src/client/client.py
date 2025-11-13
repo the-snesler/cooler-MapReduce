@@ -29,10 +29,25 @@ def submit_job(args):
     with grpc.insecure_channel(args.coordinator_host) as channel:
         stub = coordinator_pb2_grpc.CoordinatorServiceStub(channel)
         
+        # Convert relative paths to Docker-appropriate paths if needed
+        # If paths start with "shared/", convert to "/shared/" for Docker
+        def normalize_path(path):
+            if os.path.isabs(path):
+                return path
+            # If path starts with shared/, convert to /shared/ for Docker
+            if path.startswith('shared/'):
+                return '/' + path
+            # Otherwise, make it absolute relative to current directory
+            return os.path.abspath(path)
+        
+        input_path = normalize_path(args.input)
+        output_path = normalize_path(args.output)
+        job_file_path = normalize_path(args.job_file)
+        
         request = coordinator_pb2.JobRequest(
-            input_path=args.input,
-            output_path=args.output,
-            job_file_path=args.job_file,
+            input_path=input_path,
+            output_path=output_path,
+            job_file_path=job_file_path,
             num_map_tasks=args.num_map,
             num_reduce_tasks=args.num_reduce
         )
