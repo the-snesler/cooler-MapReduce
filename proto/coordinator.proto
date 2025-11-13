@@ -8,6 +8,8 @@ service CoordinatorService {
   rpc GetJobStatus(JobStatusRequest) returns (JobStatusResponse);
   rpc ListJobs(Empty) returns (JobListResponse);
   rpc GetJobResults(JobResultsRequest) returns (JobResultsResponse);
+  rpc ReportTaskCompletion(TaskCompletionReport) returns (TaskCompletionResponse);
+  rpc Heartbeat(HeartbeatRequest) returns (HeartbeatResponse);
 }
 
 // Request to submit a new MapReduce job
@@ -66,4 +68,34 @@ message JobResultsResponse {
   string job_id = 1;
   string status = 2;
   repeated string output_files = 3;  // List of output file paths
+}
+
+// Task completion report from worker
+message TaskCompletionReport {
+  string task_id = 1;
+  string job_id = 2;
+  string task_type = 3;  // MAP or REDUCE
+  string worker_id = 4;
+  string worker_address = 5;  // Worker's gRPC address for shuffle
+  repeated string intermediate_files = 6;  // List of intermediate file names (for MAP tasks)
+  bool success = 7;
+  string error_message = 8;  // If success is false
+}
+
+// Response to task completion report
+message TaskCompletionResponse {
+  bool acknowledged = 1;
+}
+
+// Heartbeat sent by worker to coordinator
+message HeartbeatRequest {
+  string worker_id = 1;
+  string status = 2;            // IDLE, BUSY
+  int32 available_slots = 3;    // Number of tasks worker can accept
+  float cpu_usage = 4;          // CPU usage percentage (optional)
+}
+
+// Response to heartbeat
+message HeartbeatResponse {
+  bool acknowledged = 1;
 }

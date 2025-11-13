@@ -14,7 +14,7 @@ _sym_db = _symbol_database.Default()
 
 
 
-DESCRIPTOR = _descriptor_pool.Default().AddSerializedFile(b'\n\x0cworker.proto\x12\tmapreduce\" \n\x0b\x46ileRequest\x12\x11\n\tfile_name\x18\x01 \x01(\t\"!\n\x0c\x46ileResponse\x12\x11\n\tfile_data\x18\x01 \x01(\x0c\"N\n\x10HeartbeatRequest\x12\x11\n\tworker_id\x18\x01 \x01(\t\x12\x0e\n\x06status\x18\x02 \x01(\t\x12\x17\n\x0f\x61vailable_slots\x18\x03 \x01(\x05\")\n\x11HeartbeatResponse\x12\x14\n\x0c\x61\x63knowledged\x18\x01 \x01(\x08\"5\n\x08Location\x12\x16\n\x0eworker_address\x18\x01 \x01(\t\x12\x11\n\tfile_name\x18\x02 \x01(\t\"\xe4\x01\n\x0eTaskAssignment\x12\x0f\n\x07task_id\x18\x01 \x01(\t\x12\x11\n\ttask_type\x18\x02 \x01(\t\x12\x0e\n\x06job_id\x18\x03 \x01(\t\x12\x12\n\ninput_path\x18\x04 \x01(\t\x12\x13\n\x0boutput_path\x18\x05 \x01(\t\x12\x15\n\rjob_file_path\x18\x06 \x01(\t\x12\x14\n\x0cpartition_id\x18\x07 \x01(\x05\x12\x18\n\x10num_reduce_tasks\x18\x08 \x01(\x05\x12.\n\x11shuffle_locations\x18\t \x03(\x0b\x32\x13.mapreduce.Location\",\n\x07TaskAck\x12\x0f\n\x07task_id\x18\x01 \x01(\t\x12\x10\n\x08\x61\x63\x63\x65pted\x18\x02 \x01(\x08\"$\n\x11TaskStatusRequest\x12\x0f\n\x07task_id\x18\x01 \x01(\t\"L\n\x12TaskStatusResponse\x12\x0f\n\x07task_id\x18\x01 \x01(\t\x12\x0e\n\x06status\x18\x02 \x01(\t\x12\x15\n\rerror_message\x18\x03 \x01(\t2\xac\x02\n\rWorkerService\x12\x46\n\tHeartbeat\x12\x1b.mapreduce.HeartbeatRequest\x1a\x1c.mapreduce.HeartbeatResponse\x12;\n\nAssignTask\x12\x19.mapreduce.TaskAssignment\x1a\x12.mapreduce.TaskAck\x12L\n\rGetTaskStatus\x12\x1c.mapreduce.TaskStatusRequest\x1a\x1d.mapreduce.TaskStatusResponse\x12H\n\x15\x46\x65tchIntermediateFile\x12\x16.mapreduce.FileRequest\x1a\x17.mapreduce.FileResponseb\x06proto3')
+DESCRIPTOR = _descriptor_pool.Default().AddSerializedFile(b'\n\x0cworker.proto\x12\tmapreduce\" \n\x0b\x46ileRequest\x12\x11\n\tfile_name\x18\x01 \x01(\t\"!\n\x0c\x46ileResponse\x12\x11\n\tfile_data\x18\x01 \x01(\x0c\"5\n\x08Location\x12\x16\n\x0eworker_address\x18\x01 \x01(\t\x12\x11\n\tfile_name\x18\x02 \x01(\t\"\xe4\x01\n\x0eTaskAssignment\x12\x0f\n\x07task_id\x18\x01 \x01(\t\x12\x11\n\ttask_type\x18\x02 \x01(\t\x12\x0e\n\x06job_id\x18\x03 \x01(\t\x12\x12\n\ninput_path\x18\x04 \x01(\t\x12\x13\n\x0boutput_path\x18\x05 \x01(\t\x12\x15\n\rjob_file_path\x18\x06 \x01(\t\x12\x14\n\x0cpartition_id\x18\x07 \x01(\x05\x12\x18\n\x10num_reduce_tasks\x18\x08 \x01(\x05\x12.\n\x11shuffle_locations\x18\t \x03(\x0b\x32\x13.mapreduce.Location\",\n\x07TaskAck\x12\x0f\n\x07task_id\x18\x01 \x01(\t\x12\x10\n\x08\x61\x63\x63\x65pted\x18\x02 \x01(\x08\"$\n\x11TaskStatusRequest\x12\x0f\n\x07task_id\x18\x01 \x01(\t\"L\n\x12TaskStatusResponse\x12\x0f\n\x07task_id\x18\x01 \x01(\t\x12\x0e\n\x06status\x18\x02 \x01(\t\x12\x15\n\rerror_message\x18\x03 \x01(\t2\xe4\x01\n\rWorkerService\x12;\n\nAssignTask\x12\x19.mapreduce.TaskAssignment\x1a\x12.mapreduce.TaskAck\x12L\n\rGetTaskStatus\x12\x1c.mapreduce.TaskStatusRequest\x1a\x1d.mapreduce.TaskStatusResponse\x12H\n\x15\x46\x65tchIntermediateFile\x12\x16.mapreduce.FileRequest\x1a\x17.mapreduce.FileResponseb\x06proto3')
 
 _globals = globals()
 _builder.BuildMessageAndEnumDescriptors(DESCRIPTOR, _globals)
@@ -25,20 +25,16 @@ if _descriptor._USE_C_DESCRIPTORS == False:
   _globals['_FILEREQUEST']._serialized_end=59
   _globals['_FILERESPONSE']._serialized_start=61
   _globals['_FILERESPONSE']._serialized_end=94
-  _globals['_HEARTBEATREQUEST']._serialized_start=96
-  _globals['_HEARTBEATREQUEST']._serialized_end=174
-  _globals['_HEARTBEATRESPONSE']._serialized_start=176
-  _globals['_HEARTBEATRESPONSE']._serialized_end=217
-  _globals['_LOCATION']._serialized_start=219
-  _globals['_LOCATION']._serialized_end=272
-  _globals['_TASKASSIGNMENT']._serialized_start=275
-  _globals['_TASKASSIGNMENT']._serialized_end=503
-  _globals['_TASKACK']._serialized_start=505
-  _globals['_TASKACK']._serialized_end=549
-  _globals['_TASKSTATUSREQUEST']._serialized_start=551
-  _globals['_TASKSTATUSREQUEST']._serialized_end=587
-  _globals['_TASKSTATUSRESPONSE']._serialized_start=589
-  _globals['_TASKSTATUSRESPONSE']._serialized_end=665
-  _globals['_WORKERSERVICE']._serialized_start=668
-  _globals['_WORKERSERVICE']._serialized_end=968
+  _globals['_LOCATION']._serialized_start=96
+  _globals['_LOCATION']._serialized_end=149
+  _globals['_TASKASSIGNMENT']._serialized_start=152
+  _globals['_TASKASSIGNMENT']._serialized_end=380
+  _globals['_TASKACK']._serialized_start=382
+  _globals['_TASKACK']._serialized_end=426
+  _globals['_TASKSTATUSREQUEST']._serialized_start=428
+  _globals['_TASKSTATUSREQUEST']._serialized_end=464
+  _globals['_TASKSTATUSRESPONSE']._serialized_start=466
+  _globals['_TASKSTATUSRESPONSE']._serialized_end=542
+  _globals['_WORKERSERVICE']._serialized_start=545
+  _globals['_WORKERSERVICE']._serialized_end=773
 # @@protoc_insertion_point(module_scope)

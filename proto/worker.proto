@@ -2,9 +2,8 @@ syntax = "proto3";
 
 package mapreduce;
 
-// WorkerService handles task execution and heartbeat from workers
+// WorkerService handles task execution from coordinator
 service WorkerService {
-  rpc Heartbeat(HeartbeatRequest) returns (HeartbeatResponse);
   rpc AssignTask(TaskAssignment) returns (TaskAck);
   rpc GetTaskStatus(TaskStatusRequest) returns (TaskStatusResponse);
 
@@ -20,19 +19,6 @@ message FileRequest {
 // response containing the intermediate file's data
 message FileResponse {
     bytes file_data = 1; // Binary content of the pickled file
-}
-
-
-// Heartbeat sent by worker to coordinator
-message HeartbeatRequest {
-  string worker_id = 1;
-  string status = 2;            // IDLE, BUSY
-  int32 available_slots = 3;    // Number of tasks worker can accept
-}
-
-// Response to heartbeat
-message HeartbeatResponse {
-  bool acknowledged = 1;
 }
 
 // structure to hold the address and file name for one intermediate file chunk
