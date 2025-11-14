@@ -14,7 +14,7 @@ _sym_db = _symbol_database.Default()
 
 
 
-DESCRIPTOR = _descriptor_pool.Default().AddSerializedFile(b'\n\x11\x63oordinator.proto\x12\tmapreduce\"}\n\nJobRequest\x12\x12\n\ninput_path\x18\x01 \x01(\t\x12\x13\n\x0boutput_path\x18\x02 \x01(\t\x12\x15\n\rjob_file_path\x18\x03 \x01(\t\x12\x15\n\rnum_map_tasks\x18\x04 \x01(\x05\x12\x18\n\x10num_reduce_tasks\x18\x05 \x01(\x05\"-\n\x0bJobResponse\x12\x0e\n\x06job_id\x18\x01 \x01(\t\x12\x0e\n\x06status\x18\x02 \x01(\t\"\"\n\x10JobStatusRequest\x12\x0e\n\x06job_id\x18\x01 \x01(\t\"\xbc\x01\n\x11JobStatusResponse\x12\x0e\n\x06job_id\x18\x01 \x01(\t\x12\x0e\n\x06status\x18\x02 \x01(\t\x12\x17\n\x0ftotal_map_tasks\x18\x03 \x01(\x05\x12\x1b\n\x13\x63ompleted_map_tasks\x18\x04 \x01(\x05\x12\x1a\n\x12total_reduce_tasks\x18\x05 \x01(\x05\x12\x1e\n\x16\x63ompleted_reduce_tasks\x18\x06 \x01(\x05\x12\x15\n\rerror_message\x18\x07 \x01(\t\"\x07\n\x05\x45mpty\"3\n\x0fJobListResponse\x12 \n\x04jobs\x18\x01 \x03(\x0b\x32\x12.mapreduce.JobInfo\">\n\x07JobInfo\x12\x0e\n\x06job_id\x18\x01 \x01(\t\x12\x0e\n\x06status\x18\x02 \x01(\t\x12\x13\n\x0bsubmit_time\x18\x03 \x01(\t\"#\n\x11JobResultsRequest\x12\x0e\n\x06job_id\x18\x01 \x01(\t\"J\n\x12JobResultsResponse\x12\x0e\n\x06job_id\x18\x01 \x01(\t\x12\x0e\n\x06status\x18\x02 \x01(\t\x12\x14\n\x0coutput_files\x18\x03 \x03(\t2\xa3\x02\n\x12\x43oordinatorService\x12:\n\tSubmitJob\x12\x15.mapreduce.JobRequest\x1a\x16.mapreduce.JobResponse\x12I\n\x0cGetJobStatus\x12\x1b.mapreduce.JobStatusRequest\x1a\x1c.mapreduce.JobStatusResponse\x12\x38\n\x08ListJobs\x12\x10.mapreduce.Empty\x1a\x1a.mapreduce.JobListResponse\x12L\n\rGetJobResults\x12\x1c.mapreduce.JobResultsRequest\x1a\x1d.mapreduce.JobResultsResponseb\x06proto3')
+DESCRIPTOR = _descriptor_pool.Default().AddSerializedFile(b'\n\x11\x63oordinator.proto\x12\tmapreduce\"}\n\nJobRequest\x12\x12\n\ninput_path\x18\x01 \x01(\t\x12\x13\n\x0boutput_path\x18\x02 \x01(\t\x12\x15\n\rjob_file_path\x18\x03 \x01(\t\x12\x15\n\rnum_map_tasks\x18\x04 \x01(\x05\x12\x18\n\x10num_reduce_tasks\x18\x05 \x01(\x05\"-\n\x0bJobResponse\x12\x0e\n\x06job_id\x18\x01 \x01(\t\x12\x0e\n\x06status\x18\x02 \x01(\t\"\"\n\x10JobStatusRequest\x12\x0e\n\x06job_id\x18\x01 \x01(\t\"\xcb\x01\n\x11JobStatusResponse\x12\x0e\n\x06job_id\x18\x01 \x01(\t\x12\x0e\n\x06status\x18\x02 \x01(\t\x12\r\n\x05phase\x18\x08 \x01(\t\x12\x17\n\x0ftotal_map_tasks\x18\x03 \x01(\x05\x12\x1b\n\x13\x63ompleted_map_tasks\x18\x04 \x01(\x05\x12\x1a\n\x12total_reduce_tasks\x18\x05 \x01(\x05\x12\x1e\n\x16\x63ompleted_reduce_tasks\x18\x06 \x01(\x05\x12\x15\n\rerror_message\x18\x07 \x01(\t\"\x07\n\x05\x45mpty\"3\n\x0fJobListResponse\x12 \n\x04jobs\x18\x01 \x03(\x0b\x32\x12.mapreduce.JobInfo\">\n\x07JobInfo\x12\x0e\n\x06job_id\x18\x01 \x01(\t\x12\x0e\n\x06status\x18\x02 \x01(\t\x12\x13\n\x0bsubmit_time\x18\x03 \x01(\t\"#\n\x11JobResultsRequest\x12\x0e\n\x06job_id\x18\x01 \x01(\t\"J\n\x12JobResultsResponse\x12\x0e\n\x06job_id\x18\x01 \x01(\t\x12\x0e\n\x06status\x18\x02 \x01(\t\x12\x14\n\x0coutput_files\x18\x03 \x03(\t\"\xb9\x01\n\x14TaskCompletionReport\x12\x0f\n\x07task_id\x18\x01 \x01(\t\x12\x0e\n\x06job_id\x18\x02 \x01(\t\x12\x11\n\ttask_type\x18\x03 \x01(\t\x12\x11\n\tworker_id\x18\x04 \x01(\t\x12\x16\n\x0eworker_address\x18\x05 \x01(\t\x12\x1a\n\x12intermediate_files\x18\x06 \x03(\t\x12\x0f\n\x07success\x18\x07 \x01(\x08\x12\x15\n\rerror_message\x18\x08 \x01(\t\".\n\x16TaskCompletionResponse\x12\x14\n\x0c\x61\x63knowledged\x18\x01 \x01(\x08\"a\n\x10HeartbeatRequest\x12\x11\n\tworker_id\x18\x01 \x01(\t\x12\x0e\n\x06status\x18\x02 \x01(\t\x12\x17\n\x0f\x61vailable_slots\x18\x03 \x01(\x05\x12\x11\n\tcpu_usage\x18\x04 \x01(\x02\")\n\x11HeartbeatResponse\x12\x14\n\x0c\x61\x63knowledged\x18\x01 \x01(\x08\x32\xc7\x03\n\x12\x43oordinatorService\x12:\n\tSubmitJob\x12\x15.mapreduce.JobRequest\x1a\x16.mapreduce.JobResponse\x12I\n\x0cGetJobStatus\x12\x1b.mapreduce.JobStatusRequest\x1a\x1c.mapreduce.JobStatusResponse\x12\x38\n\x08ListJobs\x12\x10.mapreduce.Empty\x1a\x1a.mapreduce.JobListResponse\x12L\n\rGetJobResults\x12\x1c.mapreduce.JobResultsRequest\x1a\x1d.mapreduce.JobResultsResponse\x12Z\n\x14ReportTaskCompletion\x12\x1f.mapreduce.TaskCompletionReport\x1a!.mapreduce.TaskCompletionResponse\x12\x46\n\tHeartbeat\x12\x1b.mapreduce.HeartbeatRequest\x1a\x1c.mapreduce.HeartbeatResponseb\x06proto3')
 
 _globals = globals()
 _builder.BuildMessageAndEnumDescriptors(DESCRIPTOR, _globals)
@@ -28,17 +28,25 @@ if _descriptor._USE_C_DESCRIPTORS == False:
   _globals['_JOBSTATUSREQUEST']._serialized_start=206
   _globals['_JOBSTATUSREQUEST']._serialized_end=240
   _globals['_JOBSTATUSRESPONSE']._serialized_start=243
-  _globals['_JOBSTATUSRESPONSE']._serialized_end=431
-  _globals['_EMPTY']._serialized_start=433
-  _globals['_EMPTY']._serialized_end=440
-  _globals['_JOBLISTRESPONSE']._serialized_start=442
-  _globals['_JOBLISTRESPONSE']._serialized_end=493
-  _globals['_JOBINFO']._serialized_start=495
-  _globals['_JOBINFO']._serialized_end=557
-  _globals['_JOBRESULTSREQUEST']._serialized_start=559
-  _globals['_JOBRESULTSREQUEST']._serialized_end=594
-  _globals['_JOBRESULTSRESPONSE']._serialized_start=596
-  _globals['_JOBRESULTSRESPONSE']._serialized_end=670
-  _globals['_COORDINATORSERVICE']._serialized_start=673
-  _globals['_COORDINATORSERVICE']._serialized_end=964
+  _globals['_JOBSTATUSRESPONSE']._serialized_end=446
+  _globals['_EMPTY']._serialized_start=448
+  _globals['_EMPTY']._serialized_end=455
+  _globals['_JOBLISTRESPONSE']._serialized_start=457
+  _globals['_JOBLISTRESPONSE']._serialized_end=508
+  _globals['_JOBINFO']._serialized_start=510
+  _globals['_JOBINFO']._serialized_end=572
+  _globals['_JOBRESULTSREQUEST']._serialized_start=574
+  _globals['_JOBRESULTSREQUEST']._serialized_end=609
+  _globals['_JOBRESULTSRESPONSE']._serialized_start=611
+  _globals['_JOBRESULTSRESPONSE']._serialized_end=685
+  _globals['_TASKCOMPLETIONREPORT']._serialized_start=688
+  _globals['_TASKCOMPLETIONREPORT']._serialized_end=873
+  _globals['_TASKCOMPLETIONRESPONSE']._serialized_start=875
+  _globals['_TASKCOMPLETIONRESPONSE']._serialized_end=921
+  _globals['_HEARTBEATREQUEST']._serialized_start=923
+  _globals['_HEARTBEATREQUEST']._serialized_end=1020
+  _globals['_HEARTBEATRESPONSE']._serialized_start=1022
+  _globals['_HEARTBEATRESPONSE']._serialized_end=1063
+  _globals['_COORDINATORSERVICE']._serialized_start=1066
+  _globals['_COORDINATORSERVICE']._serialized_end=1521
 # @@protoc_insertion_point(module_scope)

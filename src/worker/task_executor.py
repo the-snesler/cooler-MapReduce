@@ -3,13 +3,20 @@ TaskExecutor, handles the actual execution of map and reduce tasks.
 """
 
 import os
+import sys
 import glob
 import pickle
+import grpc
 import psutil
 import logging
 import threading
-from typing import Any, Dict, List, Tuple, Callable, Optional
+from typing import Any, Dict, List, Tuple, Callable
 from concurrent.futures import ThreadPoolExecutor
+
+# Add src directory to path for imports
+sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..'))
+import worker_pb2
+import worker_pb2_grpc
 
 class TaskExecutor:
     def __init__(self, shared_dir: str, max_workers: int = 4):
@@ -70,21 +77,30 @@ class TaskExecutor:
         except Exception as e:
             logging.warning(f"Cleanup failed for task {task_key}: {str(e)}")
 
-    def _load_job_functions(self, job_id: str) -> Tuple[Callable, Callable, Optional[Callable]]:
-        """Load map, reduce, and optional combine functions from the job pickle file."""
-        job_file = os.path.join(self.jobs_dir, f"{job_id}.pickle")
-        with open(job_file, 'rb') as f:
-            job_data = pickle.load(f)
-
-        # Combine function is optional
-        combine_fn = job_data.get('combine_fn', None)
-        return job_data['map_fn'], job_data['reduce_fn'], combine_fn
+    def _load_job_functions(self, job_id: str, job_file_path: str) -> Tuple[Callable, Callable]:
+        """Load map and reduce functions from the job Python file."""
+        import importlib.util
+        
+        # Load the module from file path
+        spec = importlib.util.spec_from_file_location(f"job_{job_id}", job_file_path)
+        if spec is None or spec.loader is None:
+            raise RuntimeError(f"Failed to load job file: {job_file_path}")
+        module = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(module)
+        
+        # Verify required functions exist
+        if not hasattr(module, "map_fn"):
+            raise ValueError("Job file missing map_fn")
+        if not hasattr(module, "reduce_fn"):
+            raise ValueError("Job file missing reduce_fn")
+            
+        return module.map_fn, module.reduce_fn
 
     def get_memory_usage(self) -> float:
         """Get current memory usage in bytes."""
         return self.process.memory_info().rss
         
-    def execute_map(self, job_id: str, task_id: int, input_file: str) -> List[str]:
+    def execute_map(self, job_id: str, task_id: int, input_file: str, job_file_path: str, num_reduce_tasks: int, start_pos: int = 0, end_pos: int = None) -> List[str]:
         """Execute a map task and return paths to intermediate files."""
         task_key = self._get_task_key(job_id, task_id)
         self._update_progress(job_id, task_id, 0.0, "STARTING")
@@ -92,63 +108,70 @@ class TaskExecutor:
         try:
             # Load job functions
             self._update_progress(job_id, task_id, 0.1, "LOADING")
-            map_fn, _, combine_fn = self._load_job_functions(job_id)
+            map_fn, _ = self._load_job_functions(job_id, job_file_path)
             intermediate_files = []
 
-            # Read input chunk
-            input_path = os.path.join(self.input_dir, input_file)
+            # Read input chunk (for the specific split)
+            input_path = os.path.join(self.input_dir, input_file) if not os.path.isabs(input_file) else input_file
             if not os.path.exists(input_path):
-                raise FileNotFoundError(f"Input file not found: {input_file}")
-
+                raise FileNotFoundError(f"Input file not found: {input_path}")
+            
             self._update_progress(job_id, task_id, 0.2, "READING")
+            
+            # Initialize partitions (one list per reduce task)
+            partitions = [[] for _ in range(num_reduce_tasks)]
+            
+            # Read and process input file line by line
             with open(input_path, 'r') as f:
-                input_data = f.read()
+                # Seek to start position if specified
+                if start_pos > 0:
+                    f.seek(start_pos)
+                
+                line_num = 0
+                total_size = os.path.getsize(input_path)
+                processed_size = start_pos
+                
+                # Process lines until end_pos or EOF
+                while True:
+                    if end_pos is not None and f.tell() >= end_pos:
+                        break
+                    
+                    line = f.readline()
+                    if not line:
+                        break
+                    
+                    # Apply map function to each line
+                    # map_fn signature: map_fn(key, value) -> yields (key, value) tuples
+                    key = f"{input_file}:{line_num}"
+                    for out_key, out_value in map_fn(key, line.strip()):
+                        # Partition by hash of key
+                        partition_id = hash(str(out_key)) % num_reduce_tasks
+                        partitions[partition_id].append((out_key, out_value))
+                    
+                    line_num += 1
+                    processed_size += len(line)
+                    
+                    # Update progress periodically
+                    if line_num % 100 == 0:
+                        progress = 0.2 + (0.5 * (processed_size / max(total_size, 1)))
+                        self._update_progress(job_id, task_id, progress, "MAPPING")
 
-            # Apply map function
-            self._update_progress(job_id, task_id, 0.35, "MAPPING")
-            mapped_data = map_fn(input_data)
-
-            # Apply combiner if provided (local aggregation before writing)
-            if combine_fn:
-                self._update_progress(job_id, task_id, 0.5, "COMBINING")
-                logging.info(f"Applying combiner for job {job_id}, task {task_id}")
-
-                combined_data = []
-                for partition_idx, partition_pairs in enumerate(mapped_data):
-                    # Group by key within this partition
-                    grouped = {}
-                    for key, value in partition_pairs:
-                        if key not in grouped:
-                            grouped[key] = []
-                        grouped[key].append(value)
-
-                    # Apply combiner to each key group
-                    combined_partition = []
-                    for key, values in grouped.items():
-                        combined_result = combine_fn(key, values)
-                        combined_partition.append((key, combined_result))
-
-                    combined_data.append(combined_partition)
-
-                mapped_data = combined_data
-                logging.info(f"Combiner completed for job {job_id}, task {task_id}")
-
-            # Write partitioned output
-            total_partitions = len(mapped_data)
-            for i, (partition, key_values) in enumerate(enumerate(mapped_data)):
+            # Write partitioned output to intermediate files
+            self._update_progress(job_id, task_id, 0.7, "WRITING")
+            for partition_id, key_values in enumerate(partitions):
                 if not key_values:  # Skip empty partitions
                     continue
                     
-                # Update progress for each partition
-                progress = 0.6 + (0.4 * (i + 1) / max(total_partitions, 1))
-                self._update_progress(job_id, task_id, progress, "WRITING")
-                    
-                outfile = f"{job_id}_map_{task_id}_part_{partition}.pickle"
+                outfile = f"{job_id}_map_{task_id}_part_{partition_id}.pickle"
                 outpath = os.path.join(self.intermediate_dir, outfile)
                 
                 with open(outpath, 'wb') as f:
                     pickle.dump(key_values, f)
                 intermediate_files.append(outfile)
+                
+                # Update progress
+                progress = 0.7 + (0.2 * (partition_id + 1) / max(num_reduce_tasks, 1))
+                self._update_progress(job_id, task_id, progress, "WRITING")
 
             self._update_progress(job_id, task_id, 1.0, "COMPLETED")
             return intermediate_files
@@ -159,55 +182,55 @@ class TaskExecutor:
             logging.error(f"Error details: {str(e)}")
             raise
 
-        except Exception as e:
-            logging.error(f"Map task failed - Job: {job_id}, Task: {task_id}")
-            logging.error(f"Error details: {str(e)}")
-            raise
-
-    def execute_reduce(self, job_id: str, task_id: int, partition_id: int) -> str:
+    def execute_reduce(self, job_id: str, task_id: int, partition_id: int, 
+                        shuffle_locations: List[Tuple[str, str]], job_file_path: str) -> str: 
         """Execute a reduce task and return path to output file."""
         self._update_progress(job_id, task_id, 0.0, "STARTING")
         
         try:
             # Load job functions
             self._update_progress(job_id, task_id, 0.1, "LOADING")
-            _, reduce_fn, _ = self._load_job_functions(job_id)
+            _, reduce_fn = self._load_job_functions(job_id, job_file_path)
             
-            # Collect all intermediate files for this partition
-            self._update_progress(job_id, task_id, 0.2, "COLLECTING")
-            pattern = f"{job_id}_map_*_part_{partition_id}.pickle"
-            intermediate_files = glob.glob(os.path.join(self.intermediate_dir, pattern))
-
-            if not intermediate_files:
-                msg = f"No intermediate files found for partition {partition_id}"
-                logging.warning(msg)
-                raise FileNotFoundError(msg)
-
-            # Read and merge intermediate data
-            self._update_progress(job_id, task_id, 0.3, "MERGING")
+            # --- SHUFFLE & MERGE PHASE: Network Data Fetch ---
+            self._update_progress(job_id, task_id, 0.2, "SHUFFLING & COLLECTING")
+            
+            # 1. Initialize data structure
             merged_data: Dict[Any, List] = {}
-            total_files = len(intermediate_files)
-            for i, file_path in enumerate(intermediate_files):
-                progress = 0.3 + (0.3 * (i + 1) / total_files)
-                self._update_progress(job_id, task_id, progress, "READING")
-                
-                with open(file_path, 'rb') as f:
-                    partition_data = pickle.load(f)
-                    for key, value in partition_data:
-                        if key not in merged_data:
-                            merged_data[key] = []
-                        merged_data[key].append(value)
+            total_files = len(shuffle_locations)
+            
+            if total_files == 0:
+                logging.warning(f"Reduce task {task_id} found no intermediate files.")
+                # If no data, proceed with empty merged_data
 
-            # Apply reduce function to merged data
+            # 2. Network Fetch Loop (The Shuffle)
+            for i, (worker_address, file_name) in enumerate(shuffle_locations):
+                progress = 0.2 + (0.4 * (i + 1) / total_files)
+                self._update_progress(job_id, task_id, progress, "FETCHING DATA")
+                
+                # 🚀 CALL THE REMOTE RPC TO FETCH FILE DATA (The Core Shuffle Logic)
+                file_data = self._fetch_file_via_grpc(worker_address, file_name)
+                
+                # 3. Unpickle and Merge (The Sort/Merge)
+                partition_data = pickle.loads(file_data)
+                for key, value in partition_data:
+                    if key not in merged_data:
+                        merged_data[key] = []
+                    merged_data[key].append(value)
+                    
+            # 4. Apply reduce function to merged data (REDUCE PHASE)
             self._update_progress(job_id, task_id, 0.7, "REDUCING")
             reduced_data = []
-            total_keys = len(merged_data)
-            for i, (key, values) in enumerate(merged_data.items()):
-                progress = 0.7 + (0.2 * (i + 1) / total_keys)
+            
+            # Sorting keys for canonical output
+            for i, (key, values) in enumerate(sorted(merged_data.items())):
+                progress = 0.7 + (0.2 * (i + 1) / max(len(merged_data), 1))
                 self._update_progress(job_id, task_id, progress, "REDUCING")
                 
-                result = reduce_fn(key, values)
-                reduced_data.append((key, result))
+                # reduce_fn signature: reduce_fn(key, values) -> yields (key, value) tuples
+                # values is a list, but reduce_fn expects an iterator
+                for out_key, out_value in reduce_fn(key, iter(values)):
+                    reduced_data.append((out_key, out_value))
 
             # Write output
             self._update_progress(job_id, task_id, 0.9, "WRITING")
@@ -223,11 +246,34 @@ class TaskExecutor:
 
         except Exception as e:
             self._update_progress(job_id, task_id, 0.0, "FAILED")
-            logging.error(f"Reduce task failed - Job: {job_id}, Task: {task_id}")
-            logging.error(f"Error details: {str(e)}")
+            logging.error(f"Reduce task failed - Job: {job_id}, Task: {task_id}. Error: {e}")
             raise
 
-        except Exception as e:
-            logging.error(f"Reduce task failed - Job: {job_id}, Task: {task_id}")
-            logging.error(f"Error details: {str(e)}")
-            raise
+    def _fetch_file_via_grpc(self, worker_address: str, file_name: str) -> bytes:
+        """
+        Helper method to fetch a single intermediate file from a remote worker via gRPC.
+        
+        This function only needs the address and filename; job/task context 
+        is managed by the calling function (execute_reduce).
+        """
+        try:
+            # 1. Correctly uses worker_address argument
+            with grpc.insecure_channel(worker_address) as channel:
+                stub = worker_pb2_grpc.WorkerServiceStub(channel)
+                
+                # 2. Correctly uses file_name argument
+                request = worker_pb2.FileRequest(file_name=file_name)
+                
+                # Use a short timeout for network operations
+                response = stub.FetchIntermediateFile(request, timeout=15) 
+                
+                # 3. Correctly returns the file data (bytes)
+                if response.file_data:
+                    return response.file_data
+                else:
+                    raise RuntimeError(f"Fetch failed: Empty data received for {file_name} from {worker_address}")
+
+        except grpc.RpcError as e:
+            # Log error using the context passed in arguments
+            logging.error(f"gRPC error fetching file {file_name} from {worker_address}: {e.details()}")
+            raise RuntimeError(f"Shuffle failure from {worker_address}: {e.details()}")

@@ -5,27 +5,24 @@ This job counts word frequencies in input text.
 Demonstrates how combiner optimization reduces intermediate data.
 """
 
-def map_fn(text):
+def map_fn(key, text):
     """
     Map function that splits text into words and emits (word, 1) pairs.
 
     Args:
+        key: Line number or input key (not used in word count)
         text: Input text string
 
-    Returns:
-        List of partitions, where each partition is a list of (key, value) tuples.
-        For this simple example, returns a single partition.
+    Yields:
+        (word, 1) tuples for each word in the text
     """
     words = text.strip().lower().split()
 
-    result = []
     for word in words:
         # Remove any punctuation
         word = word.strip('.,!?;:"\'-')
         if word:  # Skip empty strings
-            result.append((word, 1))
-
-    return [result]  # Single partition
+            yield (word, 1)
 
 
 def reduce_fn(key, values):

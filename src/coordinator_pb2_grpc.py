@@ -35,6 +35,16 @@ class CoordinatorServiceStub(object):
                 request_serializer=coordinator__pb2.JobResultsRequest.SerializeToString,
                 response_deserializer=coordinator__pb2.JobResultsResponse.FromString,
                 )
+        self.ReportTaskCompletion = channel.unary_unary(
+                '/mapreduce.CoordinatorService/ReportTaskCompletion',
+                request_serializer=coordinator__pb2.TaskCompletionReport.SerializeToString,
+                response_deserializer=coordinator__pb2.TaskCompletionResponse.FromString,
+                )
+        self.Heartbeat = channel.unary_unary(
+                '/mapreduce.CoordinatorService/Heartbeat',
+                request_serializer=coordinator__pb2.HeartbeatRequest.SerializeToString,
+                response_deserializer=coordinator__pb2.HeartbeatResponse.FromString,
+                )
 
 
 class CoordinatorServiceServicer(object):
@@ -65,6 +75,18 @@ class CoordinatorServiceServicer(object):
         context.set_details('Method not implemented!')
         raise NotImplementedError('Method not implemented!')
 
+    def ReportTaskCompletion(self, request, context):
+        """Missing associated documentation comment in .proto file."""
+        context.set_code(grpc.StatusCode.UNIMPLEMENTED)
+        context.set_details('Method not implemented!')
+        raise NotImplementedError('Method not implemented!')
+
+    def Heartbeat(self, request, context):
+        """Missing associated documentation comment in .proto file."""
+        context.set_code(grpc.StatusCode.UNIMPLEMENTED)
+        context.set_details('Method not implemented!')
+        raise NotImplementedError('Method not implemented!')
+
 
 def add_CoordinatorServiceServicer_to_server(servicer, server):
     rpc_method_handlers = {
@@ -87,6 +109,16 @@ def add_CoordinatorServiceServicer_to_server(servicer, server):
                     servicer.GetJobResults,
                     request_deserializer=coordinator__pb2.JobResultsRequest.FromString,
                     response_serializer=coordinator__pb2.JobResultsResponse.SerializeToString,
+            ),
+            'ReportTaskCompletion': grpc.unary_unary_rpc_method_handler(
+                    servicer.ReportTaskCompletion,
+                    request_deserializer=coordinator__pb2.TaskCompletionReport.FromString,
+                    response_serializer=coordinator__pb2.TaskCompletionResponse.SerializeToString,
+            ),
+            'Heartbeat': grpc.unary_unary_rpc_method_handler(
+                    servicer.Heartbeat,
+                    request_deserializer=coordinator__pb2.HeartbeatRequest.FromString,
+                    response_serializer=coordinator__pb2.HeartbeatResponse.SerializeToString,
             ),
     }
     generic_handler = grpc.method_handlers_generic_handler(
@@ -164,5 +196,39 @@ class CoordinatorService(object):
         return grpc.experimental.unary_unary(request, target, '/mapreduce.CoordinatorService/GetJobResults',
             coordinator__pb2.JobResultsRequest.SerializeToString,
             coordinator__pb2.JobResultsResponse.FromString,
+            options, channel_credentials,
+            insecure, call_credentials, compression, wait_for_ready, timeout, metadata)
+
+    @staticmethod
+    def ReportTaskCompletion(request,
+            target,
+            options=(),
+            channel_credentials=None,
+            call_credentials=None,
+            insecure=False,
+            compression=None,
+            wait_for_ready=None,
+            timeout=None,
+            metadata=None):
+        return grpc.experimental.unary_unary(request, target, '/mapreduce.CoordinatorService/ReportTaskCompletion',
+            coordinator__pb2.TaskCompletionReport.SerializeToString,
+            coordinator__pb2.TaskCompletionResponse.FromString,
+            options, channel_credentials,
+            insecure, call_credentials, compression, wait_for_ready, timeout, metadata)
+
+    @staticmethod
+    def Heartbeat(request,
+            target,
+            options=(),
+            channel_credentials=None,
+            call_credentials=None,
+            insecure=False,
+            compression=None,
+            wait_for_ready=None,
+            timeout=None,
+            metadata=None):
+        return grpc.experimental.unary_unary(request, target, '/mapreduce.CoordinatorService/Heartbeat',
+            coordinator__pb2.HeartbeatRequest.SerializeToString,
+            coordinator__pb2.HeartbeatResponse.FromString,
             options, channel_credentials,
             insecure, call_credentials, compression, wait_for_ready, timeout, metadata)
