@@ -1,0 +1,17 @@
+benchmark_name,description,run_number,timestamp,job_id,input_file,input_size_bytes,input_size_mb,job_file,num_map_tasks,num_reduce_tasks,success,total_runtime_seconds,throughput_mbps,status
+input_size_small,"Small input (4KB), baseline",1,2025-11-13T21:02:38.783604,e2dd85fb-ba19-4318-abe3-03748baaf1a5,/shared/samples/story.txt,335,0.0,/shared/samples/word_count.py,4,2,False,0.07,0.004,UNKNOWN
+input_size_medium,Medium input (~1MB),1,2025-11-13T21:02:38.946658,f4e3e88c-b407-443d-a0d2-a225b88cf3cd,/shared/input/story_medium.txt,1005000,0.96,/shared/samples/word_count.py,4,2,False,0.07,12.816,UNKNOWN
+input_size_large,Large input (~10MB),1,2025-11-13T21:02:39.104123,b6c5627a-6f70-4e0e-b976-bd0115bae8e0,/shared/input/story_large.txt,10050000,9.58,/shared/samples/word_count.py,4,2,False,0.07,129.446,UNKNOWN
+input_size_xlarge,Extra large input (~50MB),1,2025-11-13T21:02:39.276737,1e55acea-9d9f-408a-b58c-47a85e6e18ff,/shared/input/story_xlarge.txt,50250000,47.92,/shared/samples/word_count.py,4,2,False,0.08,589.92,UNKNOWN
+map_scaling_1,1 map task,1,2025-11-13T21:02:39.434481,a54960b5-6c21-4192-a2a3-6336a5279d17,/shared/input/story_large.txt,10050000,9.58,/shared/samples/word_count.py,1,2,False,0.08,127.756,UNKNOWN
+map_scaling_2,2 map tasks,1,2025-11-13T21:02:39.591039,288d6941-5959-4ed6-bb13-feae1c98c46a,/shared/input/story_large.txt,10050000,9.58,/shared/samples/word_count.py,2,2,False,0.07,131.457,UNKNOWN
+map_scaling_4,4 map tasks,1,2025-11-13T21:02:39.759870,1b86651f-117f-4945-9b8e-73cedeb8529b,/shared/input/story_large.txt,10050000,9.58,/shared/samples/word_count.py,4,2,False,0.09,110.032,UNKNOWN
+map_scaling_8,8 map tasks,1,2025-11-13T21:02:39.942111,42649941-1bf0-446a-a6dc-672f8fe31ff9,/shared/input/story_large.txt,10050000,9.58,/shared/samples/word_count.py,8,2,False,0.09,106.136,UNKNOWN
+reduce_scaling_1,1 reduce task,1,2025-11-13T21:02:40.107325,b4cb5082-c1bc-4f99-99a3-8b098f841adb,/shared/input/story_large.txt,10050000,9.58,/shared/samples/word_count.py,4,1,False,0.08,125.1,UNKNOWN
+reduce_scaling_2,2 reduce tasks,1,2025-11-13T21:02:40.266289,9a744958-57eb-4ed5-8545-7ba9241fc4a8,/shared/input/story_large.txt,10050000,9.58,/shared/samples/word_count.py,4,2,False,0.07,129.602,UNKNOWN
+reduce_scaling_4,4 reduce tasks,1,2025-11-13T21:02:40.418953,7d4c2ead-f4fa-4aaa-bd58-707d08e6bdfb,/shared/input/story_large.txt,10050000,9.58,/shared/samples/word_count.py,4,4,False,0.07,133.116,UNKNOWN
+reduce_scaling_8,8 reduce tasks,1,2025-11-13T21:02:40.571032,6cd83e19-0f56-4db1-a7cb-a85e6d4f09ec,/shared/input/story_large.txt,10050000,9.58,/shared/samples/word_count.py,4,8,False,0.07,134.294,UNKNOWN
+combined_1_1,"Combined: 1 map, 1 reduce",1,2025-11-13T21:02:40.722801,d7da08df-29ba-4a9e-9a6f-f9ad3677ac25,/shared/input/story_xlarge.txt,50250000,47.92,/shared/samples/word_count.py,1,1,False,0.07,660.858,UNKNOWN
+combined_2_2,"Combined: 2 maps, 2 reduces",1,2025-11-13T21:02:40.869346,475034eb-f5ff-4237-8fbf-6eb4774d2c2b,/shared/input/story_xlarge.txt,50250000,47.92,/shared/samples/word_count.py,2,2,False,0.07,690.8,UNKNOWN
+combined_4_2,"Combined: 4 maps, 2 reduces",1,2025-11-13T21:02:41.024335,3eab75b5-4722-4a53-9d53-c355079c1c98,/shared/input/story_xlarge.txt,50250000,47.92,/shared/samples/word_count.py,4,2,False,0.07,660.357,UNKNOWN
+combined_8_4,"Combined: 8 maps, 4 reduces",1,2025-11-13T21:02:41.179721,fc29214d-edda-4223-8934-dcf707848680,/shared/input/story_xlarge.txt,50250000,47.92,/shared/samples/word_count.py,8,4,False,0.07,662.025,UNKNOWN

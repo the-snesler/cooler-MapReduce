@@ -138,6 +138,7 @@ celerybeat.pid
 .env
 .envrc
 .venv
+venv310
 env/
 venv/
 ENV/
@@ -215,3 +216,5 @@ shared/jobs/*
 !shared/output/.gitkeep
 !shared/intermediate/.gitkeep
 !shared/jobs/.gitkeep
+
+testeroutputs.txt

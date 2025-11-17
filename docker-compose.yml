@@ -20,6 +20,7 @@ services:
       context: .
       dockerfile: Dockerfile.worker
     container_name: mapreduce-worker1
+    hostname: worker1
     depends_on:
       - coordinator
     volumes:
@@ -28,6 +29,7 @@ services:
       - mapreduce-network
     environment:
       - WORKER_ID=worker-1
+      - WORKER_HOST=worker1
       - COORDINATOR_ADDRESS=coordinator:50051
       - WORKER_PORT=50052
       - PYTHONUNBUFFERED=1
@@ -41,6 +43,7 @@ services:
       context: .
       dockerfile: Dockerfile.worker
     container_name: mapreduce-worker2
+    hostname: worker2
     depends_on:
       - coordinator
     volumes:
@@ -49,6 +52,7 @@ services:
       - mapreduce-network
     environment:
       - WORKER_ID=worker-2
+      - WORKER_HOST=worker2
       - COORDINATOR_ADDRESS=coordinator:50051
       - WORKER_PORT=50053
       - PYTHONUNBUFFERED=1
@@ -62,6 +66,7 @@ services:
       context: .
       dockerfile: Dockerfile.worker
     container_name: mapreduce-worker3
+    hostname: worker3
     depends_on:
       - coordinator
     volumes:
@@ -70,6 +75,7 @@ services:
       - mapreduce-network
     environment:
       - WORKER_ID=worker-3
+      - WORKER_HOST=worker3
       - COORDINATOR_ADDRESS=coordinator:50051
       - WORKER_PORT=50054
       - PYTHONUNBUFFERED=1
@@ -83,6 +89,7 @@ services:
       context: .
       dockerfile: Dockerfile.worker
     container_name: mapreduce-worker4
+    hostname: worker4
     depends_on:
       - coordinator
     volumes:
@@ -91,6 +98,7 @@ services:
       - mapreduce-network
     environment:
       - WORKER_ID=worker-4
+      - WORKER_HOST=worker4
       - COORDINATOR_ADDRESS=coordinator:50051
       - WORKER_PORT=50055
       - PYTHONUNBUFFERED=1
