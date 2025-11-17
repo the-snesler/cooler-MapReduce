@@ -261,6 +261,12 @@ class WorkerServicer(worker_pb2_grpc.WorkerServiceServicer):
                 intermediate_files if request.task_type == "MAP" else [],
                 success=True
             )
+            
+            # Remove completed task to free up slot for new tasks
+            with self.worker.tasks_lock:
+                if request.task_id in self.worker.tasks:
+                    del self.worker.tasks[request.task_id]
+                    logger.debug(f"Removed completed task {request.task_id} from worker tasks")
                     
         except Exception as e:
             logger.error(f"Task execution failed: {e}")
@@ -280,6 +286,12 @@ class WorkerServicer(worker_pb2_grpc.WorkerServiceServicer):
                 success=False,
                 error_message=error_message
             )
+            
+            # Remove failed task to free up slot for new tasks
+            with self.worker.tasks_lock:
+                if request.task_id in self.worker.tasks:
+                    del self.worker.tasks[request.task_id]
+                    logger.debug(f"Removed failed task {request.task_id} from worker tasks")
     
     def _report_task_completion(self, task_id: str, job_id: str, task_type: str, 
                                 intermediate_files: list, success: bool, error_message: str = ""):

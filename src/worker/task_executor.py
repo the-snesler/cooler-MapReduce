@@ -227,10 +227,18 @@ class TaskExecutor:
                 progress = 0.7 + (0.2 * (i + 1) / max(len(merged_data), 1))
                 self._update_progress(job_id, task_id, progress, "REDUCING")
                 
-                # reduce_fn signature: reduce_fn(key, values) -> yields (key, value) tuples
+                # reduce_fn signature: reduce_fn(key, values) -> can return a single value or yield tuples
                 # values is a list, but reduce_fn expects an iterator
-                for out_key, out_value in reduce_fn(key, iter(values)):
-                    reduced_data.append((out_key, out_value))
+                result = reduce_fn(key, iter(values))
+                
+                # Handle both cases: reduce_fn can return a single value or yield tuples
+                try:
+                    # Try to iterate (in case it's a generator or returns multiple tuples)
+                    for out_key, out_value in result:
+                        reduced_data.append((out_key, out_value))
+                except TypeError:
+                    # Not iterable - it's a single value, use the key and result as value
+                    reduced_data.append((key, result))
 
             # Write output
             self._update_progress(job_id, task_id, 0.9, "WRITING")

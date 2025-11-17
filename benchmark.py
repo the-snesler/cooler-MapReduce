@@ -15,7 +15,7 @@ import csv
 
 # Configuration
 COORDINATOR_HOST = "localhost:50051"
-CLIENT_CMD = ["python", "src/client/client.py"]
+CLIENT_CMD = ["python3", "src/client/client.py"]
 RESULTS_DIR = Path("benchmark_results")
 SHARED_DIR = Path("shared")
 INPUT_DIR = SHARED_DIR / "input"
@@ -301,6 +301,10 @@ def run_benchmark(config, run_number=1):
 
     input_size = get_file_size(host_input_path)
     print(f"Input size: {input_size / 1024 / 1024:.2f} MB")
+
+    # Wait a moment to ensure workers are ready (they send heartbeats every 5 seconds)
+    print("  Waiting for workers to be ready...")
+    time.sleep(6)  # Wait slightly longer than heartbeat interval
 
     # Submit job
     job_id = submit_job(config)

@@ -151,10 +151,15 @@ class JobState:
                     self.status = "MAPPING"  # Ensure correct state for transition
                     self.transition_to_reduce_phase()
                     # Add reduce tasks to scheduler after creating them
+                    # Defer add_task calls to avoid deadlock - use a background thread
                     coordinator = getattr(self, '_coordinator', None)
                     if coordinator:
-                        for reduce_task in self.reduce_tasks.values():
-                            coordinator.task_scheduler.add_task(reduce_task)
+                        reduce_tasks_list = list(self.reduce_tasks.values())
+                        # Schedule add_task calls in a background thread to avoid deadlock
+                        def add_tasks_async():
+                            for reduce_task in reduce_tasks_list:
+                                coordinator.task_scheduler.add_task(reduce_task)
+                        threading.Thread(target=add_tasks_async, daemon=True).start()
                     
             elif self.phase == "REDUCE":
                 completed = sum(1 for t in self.reduce_tasks.values() 
@@ -243,6 +248,7 @@ class CoordinatorServicer(coordinator_pb2_grpc.CoordinatorServiceServicer):
     def __init__(self):
         self.jobs = {}  # job_id -> JobState
         self.workers = {}  # worker_id -> worker info
+        self.jobs_lock = threading.Lock()  # Lock for protecting jobs dictionary
         self.task_scheduler = TaskScheduler(self)
         self.task_scheduler.start()
         logger.info("Coordinator service initialized")
@@ -252,69 +258,80 @@ class CoordinatorServicer(coordinator_pb2_grpc.CoordinatorServiceServicer):
         current_time = time.time()
         timeout_threshold = 30  # seconds
         
-        tasks_to_reassign_all = []  # Collect all tasks to reassign outside lock
-        workers_to_remove = []  # Collect workers to remove outside lock
-        
+        # First, identify timed-out workers (quick check with minimal lock time)
+        timed_out_workers = []
         with self.task_scheduler.lock:
             for worker_id, worker in list(self.workers.items()):
                 if current_time - worker['last_heartbeat'] > timeout_threshold:
-                    logger.warning(f"Worker {worker_id} timed out - reassigning tasks")
-                    
-                    # Find all tasks assigned to this failed worker
-                    tasks_to_reassign = []
-                    
-                    # Check tasks in scheduler's running_tasks
-                    for task_id, task in list(self.task_scheduler.running_tasks.items()):
+                    timed_out_workers.append(worker_id)
+        
+        if not timed_out_workers:
+            return
+        
+        # Collect all tasks to reassign (minimize lock hold time)
+        tasks_to_reassign_all = []
+        workers_to_remove = []
+        
+        for worker_id in timed_out_workers:
+            logger.warning(f"Worker {worker_id} timed out - reassigning tasks")
+            
+            tasks_to_reassign = []
+            
+            # Check tasks in scheduler's running_tasks (quick check)
+            with self.task_scheduler.lock:
+                for task_id, task in list(self.task_scheduler.running_tasks.items()):
+                    if task.assigned_worker == worker_id and task.status == "IN_PROGRESS":
+                        tasks_to_reassign.append(task)
+            
+            # Check tasks in all jobs (need jobs_lock for this)
+            with self.jobs_lock:
+                for job_id, job_state in list(self.jobs.items()):
+                    # Check map tasks
+                    for task_id, task in job_state.map_tasks.items():
                         if task.assigned_worker == worker_id and task.status == "IN_PROGRESS":
-                            tasks_to_reassign.append(task)
+                            if task not in tasks_to_reassign:
+                                tasks_to_reassign.append(task)
                     
-                    # Also check tasks in all jobs (map and reduce tasks)
-                    for job_id, job_state in self.jobs.items():
-                        # Check map tasks
-                        for task_id, task in job_state.map_tasks.items():
-                            if task.assigned_worker == worker_id and task.status == "IN_PROGRESS":
-                                if task not in tasks_to_reassign:
-                                    tasks_to_reassign.append(task)
-                        
-                        # Check reduce tasks
-                        for task_id, task in job_state.reduce_tasks.items():
-                            if task.assigned_worker == worker_id and task.status == "IN_PROGRESS":
-                                if task not in tasks_to_reassign:
-                                    tasks_to_reassign.append(task)
+                    # Check reduce tasks
+                    for task_id, task in job_state.reduce_tasks.items():
+                        if task.assigned_worker == worker_id and task.status == "IN_PROGRESS":
+                            if task not in tasks_to_reassign:
+                                tasks_to_reassign.append(task)
+            
+            # Prepare tasks for reassignment (modify state while holding scheduler lock)
+            with self.task_scheduler.lock:
+                for task in tasks_to_reassign:
+                    logger.info(f"Reassigning task {task.task_id} from failed worker {worker_id}")
                     
-                    # Prepare tasks for reassignment (modify state while holding lock)
-                    for task in tasks_to_reassign:
-                        logger.info(f"Reassigning task {task.task_id} from failed worker {worker_id}")
-                        
-                        # Reset task status to PENDING
-                        task.status = "PENDING"
-                        # Clear assigned_worker field
-                        task.assigned_worker = None
-                        # Increment retries (to give it higher priority)
-                        task.retries += 1
-                        
-                        # Remove from scheduler's running_tasks if present
-                        if task.task_id in self.task_scheduler.running_tasks:
-                            del self.task_scheduler.running_tasks[task.task_id]
-                        
-                        # Remove from scheduler's task_start_times if present
-                        if task.task_id in self.task_scheduler.task_start_times:
-                            del self.task_scheduler.task_start_times[task.task_id]
+                    # Reset task status to PENDING
+                    task.status = "PENDING"
+                    # Clear assigned_worker field
+                    task.assigned_worker = None
+                    # Increment retries (to give it higher priority)
+                    task.retries += 1
                     
-                    # Remove worker from worker_tasks tracking
-                    if worker_id in self.task_scheduler.worker_tasks:
-                        del self.task_scheduler.worker_tasks[worker_id]
+                    # Remove from scheduler's running_tasks if present
+                    if task.task_id in self.task_scheduler.running_tasks:
+                        del self.task_scheduler.running_tasks[task.task_id]
                     
-                    # Collect tasks and worker for processing outside lock
-                    tasks_to_reassign_all.extend(tasks_to_reassign)
-                    workers_to_remove.append(worker_id)
+                    # Remove from scheduler's task_start_times if present
+                    if task.task_id in self.task_scheduler.task_start_times:
+                        del self.task_scheduler.task_start_times[task.task_id]
+                
+                # Remove worker from worker_tasks tracking
+                if worker_id in self.task_scheduler.worker_tasks:
+                    del self.task_scheduler.worker_tasks[worker_id]
+            
+            # Collect tasks and worker for processing outside lock
+            tasks_to_reassign_all.extend(tasks_to_reassign)
+            workers_to_remove.append(worker_id)
         
         # Process reassignments outside lock to avoid deadlock (add_task acquires lock)
         for task in tasks_to_reassign_all:
             # Re-queue task for reassignment (this will acquire the lock internally)
             self.task_scheduler.add_task(task)
         
-        # Remove workers from registry (outside lock to avoid nested locking)
+        # Remove workers from registry (single lock acquisition)
         with self.task_scheduler.lock:
             for worker_id in workers_to_remove:
                 if worker_id in self.workers:
@@ -439,7 +456,9 @@ class CoordinatorServicer(coordinator_pb2_grpc.CoordinatorServiceServicer):
         job_state.output_path = normalized_output_path
         job_state.job_file_path = normalized_job_file_path
         job_state._coordinator = self  # Store reference for task scheduling
-        self.jobs[job_id] = job_state
+        
+        with self.jobs_lock:
+            self.jobs[job_id] = job_state
         
         # Split input file for map tasks
         splits = split_input_file(normalized_input_path, request.num_map_tasks)
@@ -479,12 +498,13 @@ class CoordinatorServicer(coordinator_pb2_grpc.CoordinatorServiceServicer):
         """Get the status of a submitted job."""
         job_id = request.job_id
         
-        if job_id not in self.jobs:
-            context.set_code(grpc.StatusCode.NOT_FOUND)
-            context.set_details(f"Job {job_id} not found")
-            return coordinator_pb2.JobStatusResponse()
-        
-        job_state = self.jobs[job_id]
+        with self.jobs_lock:
+            if job_id not in self.jobs:
+                context.set_code(grpc.StatusCode.NOT_FOUND)
+                context.set_details(f"Job {job_id} not found")
+                return coordinator_pb2.JobStatusResponse()
+            
+            job_state = self.jobs[job_id]
         
         return coordinator_pb2.JobStatusResponse(
             job_id=job_id,
@@ -500,12 +520,13 @@ class CoordinatorServicer(coordinator_pb2_grpc.CoordinatorServiceServicer):
     def ListJobs(self, request, context):
         """List all jobs."""
         jobs = []
-        for job_id, job_state in self.jobs.items():
-            jobs.append(coordinator_pb2.JobInfo(
-                job_id=job_id,
-                status=job_state.status,
-                submit_time=job_state.submit_time
-            ))
+        with self.jobs_lock:
+            for job_id, job_state in self.jobs.items():
+                jobs.append(coordinator_pb2.JobInfo(
+                    job_id=job_id,
+                    status=job_state.status,
+                    submit_time=job_state.submit_time
+                ))
         
         return coordinator_pb2.JobListResponse(jobs=jobs)
     
@@ -513,12 +534,13 @@ class CoordinatorServicer(coordinator_pb2_grpc.CoordinatorServiceServicer):
         """Get results of a completed job."""
         job_id = request.job_id
         
-        if job_id not in self.jobs:
-            context.set_code(grpc.StatusCode.NOT_FOUND)
-            context.set_details(f"Job {job_id} not found")
-            return coordinator_pb2.JobResultsResponse()
-        
-        job_state = self.jobs[job_id]
+        with self.jobs_lock:
+            if job_id not in self.jobs:
+                context.set_code(grpc.StatusCode.NOT_FOUND)
+                context.set_details(f"Job {job_id} not found")
+                return coordinator_pb2.JobResultsResponse()
+            
+            job_state = self.jobs[job_id]
         
         # TODO: Collect output file paths
         output_files = []
@@ -535,11 +557,12 @@ class CoordinatorServicer(coordinator_pb2_grpc.CoordinatorServiceServicer):
             job_id = request.job_id
             task_id = request.task_id
             
-            if job_id not in self.jobs:
-                logger.warning(f"Received completion for unknown job: {job_id}")
-                return coordinator_pb2.TaskCompletionResponse(acknowledged=False)
-            
-            job_state = self.jobs[job_id]
+            with self.jobs_lock:
+                if job_id not in self.jobs:
+                    logger.warning(f"Received completion for unknown job: {job_id}")
+                    return coordinator_pb2.TaskCompletionResponse(acknowledged=False)
+                
+                job_state = self.jobs[job_id]
             
             if task_id not in job_state.map_tasks and task_id not in job_state.reduce_tasks:
                 logger.warning(f"Received completion for unknown task: {task_id}")
@@ -669,21 +692,16 @@ class TaskScheduler:
         self.running = True
     
     def start(self):
-        """Start the scheduler thread."""
+        """Start the scheduler and monitor threads."""
         self.scheduler_thread.start()
-        logger.info("Task scheduler started")
+        self.monitor_thread.start()
+        logger.info("Task scheduler and monitor started")
     
     def stop(self):
         """Stop the scheduler thread."""
         self.running = False
         self.scheduler_thread.join()
         logger.info("Task scheduler stopped")
-    
-    def start(self):
-        """Start the scheduler and monitor threads."""
-        self.scheduler_thread.start()
-        self.monitor_thread.start()
-        logger.info("Task scheduler and monitor started")
 
     def add_task(self, task):
         """Add a new task to be scheduled with appropriate priority."""
@@ -699,17 +717,21 @@ class TaskScheduler:
         # Higher priority (lower number) for:
         # 1. Reduce tasks when most map tasks are done
         if task.task_type == "REDUCE":
-            job_state = self.coordinator_servicer.jobs[task.job_id]
-            if job_state.completed_map_tasks > 0.8 * job_state.num_map_tasks:
-                priority -= 10
+            with self.coordinator_servicer.jobs_lock:
+                if task.job_id in self.coordinator_servicer.jobs:
+                    job_state = self.coordinator_servicer.jobs[task.job_id]
+                    if job_state.completed_map_tasks > 0.8 * job_state.num_map_tasks:
+                        priority -= 10
         
         # 2. Retried tasks
         priority -= task.retries * 5
         
         # 3. Tasks from jobs that have been waiting longer
-        job_state = self.coordinator_servicer.jobs[task.job_id]
-        wait_time = time.time() - datetime.fromisoformat(job_state.submit_time).timestamp()
-        priority -= min(int(wait_time / 60), 20)  # Up to -20 for waiting
+        with self.coordinator_servicer.jobs_lock:
+            if task.job_id in self.coordinator_servicer.jobs:
+                job_state = self.coordinator_servicer.jobs[task.job_id]
+                wait_time = time.time() - datetime.fromisoformat(job_state.submit_time).timestamp()
+                priority -= min(int(wait_time / 60), 20)  # Up to -20 for waiting
         
         return priority
     
@@ -723,10 +745,19 @@ class TaskScheduler:
     def _assign_pending_tasks(self):
         """Assign pending tasks to available workers based on performance."""
         # Sort workers by performance score
+        # Workers with available slots can accept tasks, regardless of IDLE/BUSY status
         available_workers = [
             (worker_id, info) for worker_id, info in self.coordinator_servicer.workers.items()
-            if info['status'] == "IDLE" and info['available_slots'] > 0
+            if info['available_slots'] > 0
         ]
+        
+        # Debug logging
+        if self.pending_tasks.qsize() > 0:
+            logger.debug(f"Scheduler: {self.pending_tasks.qsize()} pending tasks, {len(available_workers)} available workers")
+            if len(available_workers) == 0 and len(self.coordinator_servicer.workers) > 0:
+                logger.warning(f"No available workers! Total workers: {len(self.coordinator_servicer.workers)}")
+                for worker_id, info in self.coordinator_servicer.workers.items():
+                    logger.warning(f"  Worker {worker_id}: status={info.get('status')}, slots={info.get('available_slots')}")
         
         available_workers.sort(key=lambda x: x[1]['performance_score'], reverse=True)
         
@@ -785,8 +816,12 @@ class TaskScheduler:
             self.worker_tasks[worker_id] = []
         self.worker_tasks[worker_id].append(task.task_id)
         
-        # Get job state for additional info
-        job_state = self.coordinator_servicer.jobs[task.job_id]
+        # Get job state for additional info (with lock protection)
+        with self.coordinator_servicer.jobs_lock:
+            if task.job_id not in self.coordinator_servicer.jobs:
+                logger.error(f"Job {task.job_id} not found when assigning task {task.task_id}")
+                return
+            job_state = self.coordinator_servicer.jobs[task.job_id]
         
         # Create the task assignment
         assignment = worker_pb2.TaskAssignment(
@@ -861,19 +896,26 @@ class TaskScheduler:
     
     def _handle_task_failure(self, task, error_msg):
         """Handle task failure and potential retry."""
+        should_retry = False
         with self.lock:
             if task.fail(error_msg):
                 # Can retry
                 task.retries += 1
-                self.add_task(task)  # Use priority queue
+                should_retry = True
                 logger.info(f"Task {task.task_id} queued for retry ({task.retries}/{task.max_retries})")
             else:
                 # Max retries exceeded
                 logger.error(f"Task {task.task_id} failed permanently after {task.retries} retries")
-                # Update job status
-                job_state = self.coordinator_servicer.jobs[task.job_id]
-                job_state.status = "FAILED"
-                job_state.error_message = f"Task {task.task_id} failed: {error_msg}"
+                # Update job status (need jobs_lock for this)
+                with self.coordinator_servicer.jobs_lock:
+                    if task.job_id in self.coordinator_servicer.jobs:
+                        job_state = self.coordinator_servicer.jobs[task.job_id]
+                        job_state.status = "FAILED"
+                        job_state.error_message = f"Task {task.task_id} failed: {error_msg}"
+        
+        # Retry outside lock to avoid nested lock acquisition
+        if should_retry:
+            self.add_task(task)  # This will acquire the lock internally
     
     def _handle_straggler(self, task):
         """Handle a straggler task by creating a backup task."""
