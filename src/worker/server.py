@@ -49,7 +49,13 @@ class WorkerServer:
         self.tasks_lock = threading.Lock()
         
         # Initialize server and servicer
-        self.server = grpc.server(futures.ThreadPoolExecutor(max_workers=max_workers))
+        # Increase max message size to support large intermediate files (default is 4MB)
+        # Set to 50MB to handle large shuffle data
+        options = [
+            ('grpc.max_send_message_length', 50 * 1024 * 1024),  # 50MB
+            ('grpc.max_receive_message_length', 50 * 1024 * 1024),  # 50MB
+        ]
+        self.server = grpc.server(futures.ThreadPoolExecutor(max_workers=max_workers), options=options)
         self.servicer = WorkerServicer(self)
         worker_pb2_grpc.add_WorkerServiceServicer_to_server(self.servicer, self.server)
         
@@ -253,6 +259,12 @@ class WorkerServicer(worker_pb2_grpc.WorkerServiceServicer):
                         'output_file': output_file
                     })
             
+            # Remove completed task from worker's task dictionary to free up slots
+            with self.worker.tasks_lock:
+                if request.task_id in self.worker.tasks:
+                    del self.worker.tasks[request.task_id]
+                    logger.debug(f"Removed completed task {request.task_id} from worker tasks")
+            
             # Report task completion to coordinator
             self._report_task_completion(
                 request.task_id,
@@ -261,12 +273,6 @@ class WorkerServicer(worker_pb2_grpc.WorkerServiceServicer):
                 intermediate_files if request.task_type == "MAP" else [],
                 success=True
             )
-            
-            # Remove completed task to free up slot for new tasks
-            with self.worker.tasks_lock:
-                if request.task_id in self.worker.tasks:
-                    del self.worker.tasks[request.task_id]
-                    logger.debug(f"Removed completed task {request.task_id} from worker tasks")
                     
         except Exception as e:
             logger.error(f"Task execution failed: {e}")
@@ -277,6 +283,12 @@ class WorkerServicer(worker_pb2_grpc.WorkerServiceServicer):
                     'error': error_message
                 })
             
+            # Remove failed task from worker's task dictionary to free up slots
+            with self.worker.tasks_lock:
+                if request.task_id in self.worker.tasks:
+                    del self.worker.tasks[request.task_id]
+                    logger.debug(f"Removed failed task {request.task_id} from worker tasks")
+            
             # Report task failure to coordinator
             self._report_task_completion(
                 request.task_id,
@@ -286,12 +298,6 @@ class WorkerServicer(worker_pb2_grpc.WorkerServiceServicer):
                 success=False,
                 error_message=error_message
             )
-            
-            # Remove failed task to free up slot for new tasks
-            with self.worker.tasks_lock:
-                if request.task_id in self.worker.tasks:
-                    del self.worker.tasks[request.task_id]
-                    logger.debug(f"Removed failed task {request.task_id} from worker tasks")
     
     def _report_task_completion(self, task_id: str, job_id: str, task_type: str, 
                                 intermediate_files: list, success: bool, error_message: str = ""):

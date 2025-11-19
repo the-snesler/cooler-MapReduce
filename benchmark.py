@@ -27,7 +27,7 @@ BENCHMARKS = [
     # Experiment 1: Input Size Scaling (fixed parallelism)
     {
         "name": "input_size_small",
-        "input": "/shared/samples/story.txt",
+        "input": "/shared/input/story_sm.txt",
         "job": "/shared/samples/word_count.py",
         "maps": 4,
         "reduces": 2,
@@ -175,7 +175,7 @@ def check_prerequisites():
     required_files = [
         "src/client/client.py",
         "samples/word_count.py",
-        "samples/story.txt"
+        "shared/input/story_sm.txt"
     ]
 
     for file_path in required_files:

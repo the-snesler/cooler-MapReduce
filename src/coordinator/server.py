@@ -745,7 +745,8 @@ class TaskScheduler:
     def _assign_pending_tasks(self):
         """Assign pending tasks to available workers based on performance."""
         # Sort workers by performance score
-        # Workers with available slots can accept tasks, regardless of IDLE/BUSY status
+        # Assign to any worker with available slots, regardless of status (IDLE/BUSY)
+        # Workers can be BUSY but still have available slots for more tasks
         available_workers = [
             (worker_id, info) for worker_id, info in self.coordinator_servicer.workers.items()
             if info['available_slots'] > 0

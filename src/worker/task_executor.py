@@ -266,7 +266,13 @@ class TaskExecutor:
         """
         try:
             # 1. Correctly uses worker_address argument
-            with grpc.insecure_channel(worker_address) as channel:
+            # Increase max message size to support large intermediate files (default is 4MB)
+            # Set to 50MB to handle large shuffle data
+            options = [
+                ('grpc.max_send_message_length', 50 * 1024 * 1024),  # 50MB
+                ('grpc.max_receive_message_length', 50 * 1024 * 1024),  # 50MB
+            ]
+            with grpc.insecure_channel(worker_address, options=options) as channel:
                 stub = worker_pb2_grpc.WorkerServiceStub(channel)
                 
                 # 2. Correctly uses file_name argument
