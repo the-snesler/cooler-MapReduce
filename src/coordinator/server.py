@@ -743,15 +743,15 @@ class TaskScheduler:
             time.sleep(1)  # Check every second
     
     def _assign_pending_tasks(self):
-        """Assign pending tasks to available workers based on performance."""
-        # Sort workers by performance score
+        """Assign pending tasks to available workers using round-robin distribution."""
+        # Get workers with available slots
         # Assign to any worker with available slots, regardless of status (IDLE/BUSY)
         # Workers can be BUSY but still have available slots for more tasks
         available_workers = [
             (worker_id, info) for worker_id, info in self.coordinator_servicer.workers.items()
             if info['available_slots'] > 0
         ]
-        
+
         # Debug logging
         if self.pending_tasks.qsize() > 0:
             logger.debug(f"Scheduler: {self.pending_tasks.qsize()} pending tasks, {len(available_workers)} available workers")
@@ -759,15 +759,31 @@ class TaskScheduler:
                 logger.warning(f"No available workers! Total workers: {len(self.coordinator_servicer.workers)}")
                 for worker_id, info in self.coordinator_servicer.workers.items():
                     logger.warning(f"  Worker {worker_id}: status={info.get('status')}, slots={info.get('available_slots')}")
-        
+
+        if not available_workers:
+            return
+
+        # Sort workers by performance score for initial ordering
         available_workers.sort(key=lambda x: x[1]['performance_score'], reverse=True)
-        
-        for worker_id, worker_info in available_workers:
-            while worker_info['available_slots'] > 0 and not self.pending_tasks.empty():
-                prioritized_task = self.pending_tasks.get()
-                task = prioritized_task.task
-                self._assign_task_to_worker(worker_id, task)
-                worker_info['available_slots'] -= 1
+
+        # Round-robin task assignment: assign one task to each worker in rotation
+        # This ensures even distribution across all workers
+        worker_index = 0
+        while not self.pending_tasks.empty() and any(w[1]['available_slots'] > 0 for w in available_workers):
+            # Find next worker with available slots
+            attempts = 0
+            while attempts < len(available_workers):
+                worker_id, worker_info = available_workers[worker_index]
+                worker_index = (worker_index + 1) % len(available_workers)
+                attempts += 1
+
+                if worker_info['available_slots'] > 0:
+                    # Assign one task to this worker
+                    prioritized_task = self.pending_tasks.get()
+                    task = prioritized_task.task
+                    self._assign_task_to_worker(worker_id, task)
+                    worker_info['available_slots'] -= 1
+                    break
                 
     def _monitor_stragglers(self):
         """Monitor for straggler tasks and reassign if needed."""

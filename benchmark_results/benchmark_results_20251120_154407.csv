@@ -1,0 +1,12 @@
+benchmark_name,description,run_number,timestamp,job_id,input_file,input_size_bytes,input_size_mb,job_file,num_map_tasks,num_reduce_tasks,success,total_runtime_seconds,throughput_mbps,status,phase,completed_map_tasks,completed_reduce_tasks
+input_size_small,"Small input (4KB), baseline",1,2025-11-20T15:44:15.789811,38aca322-462f-45a7-b5b3-4178146a881a,/shared/input/story_sm.txt,335,0.0,/shared/samples/word_count.py,4,2,True,2.35,0.0,COMPLETED,REDUCE,,
+input_size_medium,Medium input (~1MB),1,2025-11-20T15:44:24.297772,d4d65e59-7901-41ec-95fc-d47d5b22ef93,/shared/input/story_medium.txt,1004544,0.96,/shared/samples/word_count.py,4,2,True,2.36,0.406,COMPLETED,REDUCE,,
+input_size_large,Large input (~10MB),1,2025-11-20T15:44:35.265909,6ca95560-246f-48ff-b0ab-f3a7dd3fed88,/shared/input/story_large.txt,10066080,9.6,/shared/samples/word_count.py,4,2,True,4.8,2.002,COMPLETED,REDUCE,,
+map_scaling_1,1 map task,1,2025-11-20T15:44:49.403834,5fd57052-7e2c-4826-bc42-034661f085b9,/shared/input/story_large.txt,10066080,9.6,/shared/samples/word_count.py,1,2,True,9.08,1.057,COMPLETED,REDUCE,,
+map_scaling_2,2 map tasks,1,2025-11-20T15:45:00.317663,cbd9e00e-3026-4bda-8225-988d392a6f45,/shared/input/story_large.txt,10066080,9.6,/shared/samples/word_count.py,2,2,True,4.66,2.062,COMPLETED,REDUCE,,
+map_scaling_4,4 map tasks,1,2025-11-20T15:45:10.149564,b09797ea-9ce7-4c37-a1d6-08cef1d22aba,/shared/input/story_large.txt,10066080,9.6,/shared/samples/word_count.py,4,2,True,4.7,2.04,COMPLETED,REDUCE,,
+map_scaling_8,8 map tasks,1,2025-11-20T15:45:26.327199,98efc7e9-db4c-4bda-83f3-f5e2eb30b9fd,/shared/input/story_large.txt,10066080,9.6,/shared/samples/word_count.py,8,2,True,9.92,0.967,COMPLETED,REDUCE,,
+reduce_scaling_1,1 reduce task,1,2025-11-20T15:45:39.175371,11705cfe-2e62-4850-915f-825293f96b99,/shared/input/story_large.txt,10066080,9.6,/shared/samples/word_count.py,4,1,True,6.59,1.457,COMPLETED,REDUCE,,
+reduce_scaling_2,2 reduce tasks,1,2025-11-20T15:45:50.173404,005026f6-c5a8-4fd9-83cf-c835d4389b82,/shared/input/story_large.txt,10066080,9.6,/shared/samples/word_count.py,4,2,True,4.77,2.011,COMPLETED,REDUCE,,
+reduce_scaling_4,4 reduce tasks,1,2025-11-20T15:46:01.241695,b5a5c17a-c64e-49ea-adff-5ece61df2ff0,/shared/input/story_large.txt,10066080,9.6,/shared/samples/word_count.py,4,4,True,4.82,1.99,COMPLETED,REDUCE,,
+reduce_scaling_8,8 reduce tasks,1,2025-11-20T15:46:11.352194,961c8c75-bc5e-498c-a52b-aab16a37da5d,/shared/input/story_large.txt,10066080,9.6,/shared/samples/word_count.py,4,8,True,4.93,1.948,COMPLETED,REDUCE,,
