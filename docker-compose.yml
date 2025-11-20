@@ -2,7 +2,9 @@ version: '3.8'
 
 services:
   coordinator:
-    build: ./coordinator
+    build:
+      context: .
+      dockerfile: coordinator/Dockerfile
     container_name: coolest-mapreduce-coordinator
     ports:
       - "50051:50051"
@@ -13,7 +15,9 @@ services:
     restart: unless-stopped
 
   worker-1:
-    build: ./worker
+    build:
+      context: .
+      dockerfile: worker/Dockerfile
     container_name: coolest-mapreduce-worker-1
     depends_on:
       - coordinator
@@ -24,6 +28,7 @@ services:
     environment:
       - WORKER_ID=1
       - COORDINATOR_HOST=coordinator:50051
+      - WORKER_PORT=50052
     volumes:
       - mapreduce-data:/mapreduce-data
     networks:
@@ -31,7 +36,9 @@ services:
     restart: unless-stopped
 
   worker-2:
-    build: ./worker
+    build:
+      context: .
+      dockerfile: worker/Dockerfile
     container_name: coolest-mapreduce-worker-2
     depends_on:
       - coordinator
@@ -42,6 +49,7 @@ services:
     environment:
       - WORKER_ID=2
       - COORDINATOR_HOST=coordinator:50051
+      - WORKER_PORT=50053
     volumes:
       - mapreduce-data:/mapreduce-data
     networks:
@@ -49,7 +57,9 @@ services:
     restart: unless-stopped
 
   worker-3:
-    build: ./worker
+    build:
+      context: .
+      dockerfile: worker/Dockerfile
     container_name: coolest-mapreduce-worker-3
     depends_on:
       - coordinator
@@ -60,6 +70,7 @@ services:
     environment:
       - WORKER_ID=3
       - COORDINATOR_HOST=coordinator:50051
+      - WORKER_PORT=50054
     volumes:
       - mapreduce-data:/mapreduce-data
     networks:
@@ -67,7 +78,9 @@ services:
     restart: unless-stopped
 
   worker-4:
-    build: ./worker
+    build:
+      context: .
+      dockerfile: worker/Dockerfile
     container_name: coolest-mapreduce-worker-4
     depends_on:
       - coordinator
@@ -78,6 +91,7 @@ services:
     environment:
       - WORKER_ID=4
       - COORDINATOR_HOST=coordinator:50051
+      - WORKER_PORT=50055
     volumes:
       - mapreduce-data:/mapreduce-data
     networks:

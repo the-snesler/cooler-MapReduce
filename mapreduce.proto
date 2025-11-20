@@ -1,0 +1,91 @@
+syntax = "proto3";
+
+package mapreduce;
+
+// Client-Coordinator service for job submission and management
+service JobService {
+  rpc SubmitJob(JobSpec) returns (JobResponse);
+  rpc GetJobStatus(JobStatusRequest) returns (JobStatusResponse);
+  rpc GetJobResult(JobResultRequest) returns (JobResultResponse);
+}
+
+// Job specification submitted by client
+message JobSpec {
+  string job_id = 1;
+  string input_path = 2;
+  string output_path = 3;
+  string map_reduce_file = 4;
+  int32 num_map_tasks = 5;
+  int32 num_reduce_tasks = 6;
+  bool use_combiner = 7;
+}
+
+// Response after job submission
+message JobResponse {
+  string job_id = 1;
+  string status = 2;
+}
+
+// Request for job status
+message JobStatusRequest {
+  string job_id = 1;
+}
+
+// Response with job status and progress
+message JobStatusResponse {
+  string status = 1;  // "pending", "map_phase", "reduce_phase", "completed", "failed"
+  int32 progress_percentage = 2;
+}
+
+// Request for job result
+message JobResultRequest {
+  string job_id = 1;
+}
+
+// Response with job result
+message JobResultResponse {
+  string output_path = 1;
+  string metrics = 2;
+}
+
+// Coordinator-Worker service for task assignment and health monitoring
+service TaskService {
+  rpc AssignMapTask(MapTaskRequest) returns (TaskResult);
+  rpc AssignReduceTask(ReduceTaskRequest) returns (TaskResult);
+  rpc Heartbeat(HeartbeatRequest) returns (WorkerStatus);
+}
+
+// Map task assignment request
+message MapTaskRequest {
+  int32 task_id = 1;
+  string input_path = 2;
+  int32 num_reduce_tasks = 3;
+  string map_reduce_file = 4;
+  bool use_combiner = 5;
+}
+
+// Reduce task assignment request
+message ReduceTaskRequest {
+  int32 task_id = 1;
+  int32 partition_id = 2;
+  repeated string intermediate_files = 3;
+  string map_reduce_file = 4;
+  string output_path = 5;
+}
+
+// Task execution result
+message TaskResult {
+  bool success = 1;
+  string error_message = 2;
+  int64 execution_time_ms = 3;
+}
+
+// Worker heartbeat request
+message HeartbeatRequest {
+  int32 worker_id = 1;
+}
+
+// Worker status response
+message WorkerStatus {
+  bool is_available = 1;
+}

@@ -31,3 +31,6 @@ tasks/
 .taskmaster/
 .mcp.json
 CLAUDE.md
+.venv/
+__pycache__/
+.venv/
