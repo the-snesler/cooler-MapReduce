@@ -1,6 +1,0 @@
-benchmark_name,description,run_number,timestamp,job_id,input_file,input_size_bytes,input_size_mb,job_file,num_map_tasks,num_reduce_tasks,success,total_runtime_seconds,throughput_mbps,status,phase,completed_map_tasks,completed_reduce_tasks
-input_size_small,"Small input (4KB), baseline",1,2025-11-18T18:59:21.849445,4bfe7067-740e-4f14-8d8a-0cd3be1dfed6,/shared/samples/story.txt,335,0.0,/shared/samples/word_count.py,4,2,True,2.33,0.0,COMPLETED,REDUCE,,
-input_size_small,"Small input (4KB), baseline",2,2025-11-18T18:59:32.337947,5373a468-a98e-4583-b717-8d41da6a020a,/shared/samples/story.txt,335,0.0,/shared/samples/word_count.py,4,2,True,2.32,0.0,COMPLETED,REDUCE,,
-input_size_small,"Small input (4KB), baseline",3,2025-11-18T18:59:42.847352,a0bae343-08aa-431a-9d6a-772cae4b63fd,/shared/samples/story.txt,335,0.0,/shared/samples/word_count.py,4,2,True,2.33,0.0,COMPLETED,REDUCE,,
-input_size_small,"Small input (4KB), baseline",4,2025-11-18T18:59:53.362296,93840886-e158-4328-b628-fd90ee2c0a55,/shared/samples/story.txt,335,0.0,/shared/samples/word_count.py,4,2,True,2.34,0.0,COMPLETED,REDUCE,,
-input_size_small,"Small input (4KB), baseline",5,2025-11-18T19:00:03.891260,bb1f0b1d-b393-4c1d-aca3-b65f8f62b819,/shared/samples/story.txt,335,0.0,/shared/samples/word_count.py,4,2,True,2.34,0.0,COMPLETED,REDUCE,,
