@@ -1,0 +1,94 @@
+version: '3.8'
+
+services:
+  coordinator:
+    build: ./coordinator
+    container_name: coolest-mapreduce-coordinator
+    ports:
+      - "50051:50051"
+    volumes:
+      - mapreduce-data:/mapreduce-data
+    networks:
+      - mapreduce-net
+    restart: unless-stopped
+
+  worker-1:
+    build: ./worker
+    container_name: coolest-mapreduce-worker-1
+    depends_on:
+      - coordinator
+    deploy:
+      resources:
+        limits:
+          cpus: '1.0'
+    environment:
+      - WORKER_ID=1
+      - COORDINATOR_HOST=coordinator:50051
+    volumes:
+      - mapreduce-data:/mapreduce-data
+    networks:
+      - mapreduce-net
+    restart: unless-stopped
+
+  worker-2:
+    build: ./worker
+    container_name: coolest-mapreduce-worker-2
+    depends_on:
+      - coordinator
+    deploy:
+      resources:
+        limits:
+          cpus: '1.0'
+    environment:
+      - WORKER_ID=2
+      - COORDINATOR_HOST=coordinator:50051
+    volumes:
+      - mapreduce-data:/mapreduce-data
+    networks:
+      - mapreduce-net
+    restart: unless-stopped
+
+  worker-3:
+    build: ./worker
+    container_name: coolest-mapreduce-worker-3
+    depends_on:
+      - coordinator
+    deploy:
+      resources:
+        limits:
+          cpus: '1.0'
+    environment:
+      - WORKER_ID=3
+      - COORDINATOR_HOST=coordinator:50051
+    volumes:
+      - mapreduce-data:/mapreduce-data
+    networks:
+      - mapreduce-net
+    restart: unless-stopped
+
+  worker-4:
+    build: ./worker
+    container_name: coolest-mapreduce-worker-4
+    depends_on:
+      - coordinator
+    deploy:
+      resources:
+        limits:
+          cpus: '1.0'
+    environment:
+      - WORKER_ID=4
+      - COORDINATOR_HOST=coordinator:50051
+    volumes:
+      - mapreduce-data:/mapreduce-data
+    networks:
+      - mapreduce-net
+    restart: unless-stopped
+
+volumes:
+  mapreduce-data:
+    name: mapreduce-data
+
+networks:
+  mapreduce-net:
+    driver: bridge
+    name: mapreduce-net
