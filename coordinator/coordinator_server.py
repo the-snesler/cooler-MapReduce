@@ -8,9 +8,11 @@ import grpc
 from concurrent import futures
 import time
 import threading
+import os
 import mapreduce_pb2
 import mapreduce_pb2_grpc
 from job_manager import JobManager, JobStatus
+from metrics import MetricsCollector
 
 
 class JobServiceImpl(mapreduce_pb2_grpc.JobServiceServicer):
@@ -18,6 +20,7 @@ class JobServiceImpl(mapreduce_pb2_grpc.JobServiceServicer):
 
     def __init__(self):
         self.job_manager = JobManager()
+        self.metrics_collector = MetricsCollector()
         self.worker_pool = ['worker-1:50052', 'worker-2:50052', 'worker-3:50052', 'worker-4:50052']
         self.worker_index = 0
 
@@ -26,6 +29,15 @@ class JobServiceImpl(mapreduce_pb2_grpc.JobServiceServicer):
         try:
             # Create job
             job = self.job_manager.create_job(request)
+
+            # Start metrics collection
+            self.metrics_collector.start_job(
+                request.job_id,
+                request.num_map_tasks,
+                request.num_reduce_tasks,
+                request.use_combiner,
+                request.input_path
+            )
 
             # Generate map tasks
             self.job_manager.generate_map_tasks(job)
@@ -70,7 +82,22 @@ class JobServiceImpl(mapreduce_pb2_grpc.JobServiceServicer):
             context.set_details("Job not completed yet")
             return mapreduce_pb2.JobResultResponse()
 
-        metrics = f"Execution time: {job.end_time - job.start_time:.2f}s"
+        # Get detailed metrics
+        job_metrics = self.metrics_collector.get_metrics(request.job_id)
+        if job_metrics:
+            metrics = (
+                f"Execution time: {job_metrics.total_time_seconds:.2f}s\n"
+                f"Map phase: {job_metrics.map_phase_time_seconds:.2f}s\n"
+                f"Reduce phase: {job_metrics.reduce_phase_time_seconds:.2f}s\n"
+                f"Input size: {job_metrics.input_size_bytes / (1024**2):.2f} MB\n"
+                f"Intermediate size: {job_metrics.intermediate_size_bytes / (1024**2):.2f} MB\n"
+                f"Output size: {job_metrics.output_size_bytes / (1024**2):.2f} MB"
+            )
+            if job_metrics.use_combiner and job_metrics.combiner_reduction_ratio > 0:
+                metrics += f"\nCombiner reduction: {job_metrics.combiner_reduction_ratio * 100:.1f}%"
+        else:
+            metrics = f"Execution time: {job.end_time - job.start_time:.2f}s"
+
         return mapreduce_pb2.JobResultResponse(
             output_path=job.output_path,
             metrics=metrics
@@ -93,6 +120,7 @@ class JobServiceImpl(mapreduce_pb2_grpc.JobServiceServicer):
             time.sleep(0.5)
 
         print(f"Map phase completed for job {job_id}")
+        self.metrics_collector.end_map_phase(job_id)
 
         # Generate reduce tasks
         if job.status == JobStatus.SHUFFLE_PHASE:
@@ -100,9 +128,23 @@ class JobServiceImpl(mapreduce_pb2_grpc.JobServiceServicer):
             self.job_manager.generate_reduce_tasks(job)
             job.status = JobStatus.REDUCE_PHASE
 
+            # Start reduce phase metrics collection
+            self.metrics_collector.start_reduce_phase(job_id, '/mapreduce-data/intermediate')
+
             # Assign all reduce tasks
             print(f"Starting reduce phase for job {job_id}")
             self._assign_reduce_tasks(job_id)
+
+        # Finalize metrics
+        self.metrics_collector.end_job(job_id, job.output_path)
+
+        # Save metrics to file
+        metrics_dir = '/mapreduce-data/metrics'
+        os.makedirs(metrics_dir, exist_ok=True)
+        metrics = self.metrics_collector.get_metrics(job_id)
+        if metrics:
+            metrics.save_to_file(f'{metrics_dir}/{job_id}.json')
+            print(f"Metrics saved to {metrics_dir}/{job_id}.json")
 
         print(f"Job {job_id} completed")
 
