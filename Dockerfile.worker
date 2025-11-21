@@ -18,6 +18,6 @@ RUN python -m grpc_tools.protoc -I./proto --python_out=./src --grpc_python_out=.
 
 # Expose worker port (will be overridden by environment variable)
 EXPOSE 50052
-
+ENV PYTHONUNBUFFERED=1
 # Run worker server
 CMD python src/worker/server.py --worker-id ${WORKER_ID} --coordinator ${COORDINATOR_ADDRESS} --port ${WORKER_PORT}

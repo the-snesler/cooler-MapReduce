@@ -18,6 +18,6 @@ RUN python -m grpc_tools.protoc -I./proto --python_out=./src --grpc_python_out=.
 
 # Expose coordinator port
 EXPOSE 50051
-
+ENV PYTHONUNBUFFERED=1
 # Run coordinator server
 CMD ["python", "src/coordinator/server.py"]
