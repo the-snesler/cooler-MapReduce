@@ -74,6 +74,7 @@ message ReduceTaskRequest {
   repeated string intermediate_files = 3;
   string map_reduce_file = 4;
   string output_path = 5;
+  string job_id = 6;
 }
 
 // Task execution result

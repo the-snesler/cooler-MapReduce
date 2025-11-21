@@ -78,8 +78,119 @@ class JobServiceImpl(mapreduce_pb2_grpc.JobServiceServicer):
 
     def _execute_job(self, job_id: str):
         """Execute job by assigning tasks to workers"""
-        # Assign map tasks (implemented in Task 6)
-        pass
+        job = self.job_manager.jobs.get(job_id)
+        if not job:
+            return
+
+        print(f"Executing job {job_id}")
+
+        # Assign all map tasks
+        print(f"Starting map phase for job {job_id}")
+        self._assign_map_tasks(job_id)
+
+        # Wait for map phase to complete
+        while job.status == JobStatus.MAP_PHASE:
+            time.sleep(0.5)
+
+        print(f"Map phase completed for job {job_id}")
+
+        # Generate reduce tasks
+        if job.status == JobStatus.SHUFFLE_PHASE:
+            print(f"Generating reduce tasks for job {job_id}")
+            self.job_manager.generate_reduce_tasks(job)
+            job.status = JobStatus.REDUCE_PHASE
+
+            # Assign all reduce tasks
+            print(f"Starting reduce phase for job {job_id}")
+            self._assign_reduce_tasks(job_id)
+
+        print(f"Job {job_id} completed")
+
+    def _assign_map_tasks(self, job_id: str):
+        """Assign all map tasks to workers"""
+        from concurrent.futures import ThreadPoolExecutor, as_completed
+
+        job = self.job_manager.jobs.get(job_id)
+        if not job:
+            return
+
+        def assign_task(task):
+            worker_host = self._get_next_worker()
+            channel = grpc.insecure_channel(worker_host)
+            stub = mapreduce_pb2_grpc.TaskServiceStub(channel)
+
+            request = mapreduce_pb2.MapTaskRequest(
+                task_id=task.task_id,
+                input_path=task.input_path,
+                start_offset=task.start_offset,
+                end_offset=task.end_offset,
+                num_reduce_tasks=job.num_reduce_tasks,
+                map_reduce_file=job.map_reduce_file,
+                use_combiner=job.use_combiner,
+                job_id=job_id
+            )
+
+            try:
+                print(f"Assigning map task {task.task_id} to {worker_host}")
+                response = stub.AssignMapTask(request, timeout=300)
+                if response.success:
+                    self.job_manager.mark_map_task_completed(job_id, task.task_id)
+                    print(f"Map task {task.task_id} completed in {response.execution_time_ms}ms")
+                else:
+                    print(f"Map task {task.task_id} failed: {response.error_message}")
+                return response
+            except Exception as e:
+                print(f"Error assigning map task {task.task_id}: {e}")
+                return None
+            finally:
+                channel.close()
+
+        with ThreadPoolExecutor(max_workers=len(self.worker_pool)) as executor:
+            futures = [executor.submit(assign_task, task) for task in job.map_tasks]
+            for future in as_completed(futures):
+                future.result()
+
+    def _assign_reduce_tasks(self, job_id: str):
+        """Assign all reduce tasks to workers"""
+        from concurrent.futures import ThreadPoolExecutor, as_completed
+
+        job = self.job_manager.jobs.get(job_id)
+        if not job:
+            return
+
+        def assign_task(task):
+            worker_host = self._get_next_worker()
+            channel = grpc.insecure_channel(worker_host)
+            stub = mapreduce_pb2_grpc.TaskServiceStub(channel)
+
+            request = mapreduce_pb2.ReduceTaskRequest(
+                task_id=task.task_id,
+                partition_id=task.partition_id,
+                intermediate_files=task.intermediate_files,
+                map_reduce_file=job.map_reduce_file,
+                output_path=job.output_path,
+                job_id=job_id
+            )
+
+            try:
+                print(f"Assigning reduce task {task.task_id} to {worker_host}")
+                response = stub.AssignReduceTask(request, timeout=300)
+                if response.success:
+                    self.job_manager.mark_reduce_task_completed(job_id, task.task_id)
+                    print(f"Reduce task {task.task_id} completed in {response.execution_time_ms}ms")
+                else:
+                    print(f"Reduce task {task.task_id} failed: {response.error_message}")
+                return response
+            except Exception as e:
+                print(f"Error assigning reduce task {task.task_id}: {e}")
+                return None
+            finally:
+                channel.close()
+
+        with ThreadPoolExecutor(max_workers=len(self.worker_pool)) as executor:
+            futures = [executor.submit(assign_task, task) for task in job.reduce_tasks]
+            for future in as_completed(futures):
+                future.result()
 
     def _get_next_worker(self) -> str:
         """Round-robin worker selection"""
