@@ -10,6 +10,7 @@ import grpc
 from concurrent import futures
 import mapreduce_pb2
 import mapreduce_pb2_grpc
+from map_executor import MapExecutor
 
 
 class TaskServiceImpl(mapreduce_pb2_grpc.TaskServiceServicer):
@@ -17,15 +18,34 @@ class TaskServiceImpl(mapreduce_pb2_grpc.TaskServiceServicer):
 
     def __init__(self, worker_id):
         self.worker_id = worker_id
+        self.is_available = True
 
     def AssignMapTask(self, request, context):
         """Handle map task assignment from coordinator"""
         print(f"Worker {self.worker_id}: Received map task {request.task_id}")
-        return mapreduce_pb2.TaskResult(
-            success=True,
-            error_message="",
-            execution_time_ms=0
-        )
+        self.is_available = False
+
+        try:
+            executor = MapExecutor(
+                task_id=request.task_id,
+                input_path=request.input_path,
+                start_offset=request.start_offset,
+                end_offset=request.end_offset,
+                num_reduce_tasks=request.num_reduce_tasks,
+                map_reduce_file=request.map_reduce_file,
+                use_combiner=request.use_combiner,
+                job_id=request.job_id
+            )
+
+            result = executor.execute()
+
+            return mapreduce_pb2.TaskResult(
+                success=result['success'],
+                error_message=result['error_message'],
+                execution_time_ms=result['execution_time_ms']
+            )
+        finally:
+            self.is_available = True
 
     def AssignReduceTask(self, request, context):
         """Handle reduce task assignment from coordinator"""
@@ -38,7 +58,7 @@ class TaskServiceImpl(mapreduce_pb2_grpc.TaskServiceServicer):
 
     def Heartbeat(self, request, context):
         """Respond to heartbeat from coordinator"""
-        return mapreduce_pb2.WorkerStatus(is_available=True)
+        return mapreduce_pb2.WorkerStatus(is_available=self.is_available)
 
 
 def serve(port, worker_id):

@@ -59,9 +59,12 @@ service TaskService {
 message MapTaskRequest {
   int32 task_id = 1;
   string input_path = 2;
-  int32 num_reduce_tasks = 3;
-  string map_reduce_file = 4;
-  bool use_combiner = 5;
+  int64 start_offset = 3;
+  int64 end_offset = 4;
+  int32 num_reduce_tasks = 5;
+  string map_reduce_file = 6;
+  bool use_combiner = 7;
+  string job_id = 8;
 }
 
 // Reduce task assignment request
