@@ -33,4 +33,4 @@ tasks/
 CLAUDE.md
 .venv/
 __pycache__/
-.venv/
+venv/
